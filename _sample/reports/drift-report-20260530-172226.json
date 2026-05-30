@@ -1,0 +1,103 @@
+﻿{
+    "metadata":  {
+                     "applicationName":  "MyApp",
+                     "environmentName":  "QA",
+                     "rootPath":  "d:\\users\\Brainer\\Documents\\Code\\BrainDrift\\_sample\\server",
+                     "baselinePath":  "d:\\users\\Brainer\\Documents\\Code\\BrainDrift\\_sample\\baseline\\last-successful-deployment.json",
+                     "incomingPackagePath":  "d:\\users\\Brainer\\Documents\\Code\\BrainDrift\\_sample\\incoming",
+                     "generatedAtUtc":  "2026-05-30T17:22:26.2317040Z",
+                     "generatedBy":  "BRAINER-1244-1\\Brainer",
+                     "hashAlgorithm":  "SHA256"
+                 },
+    "summary":  {
+                    "baselineFileCount":  2,
+                    "currentFileCount":  2,
+                    "incomingFileCount":  2,
+                    "modifiedCount":  1,
+                    "missingCount":  0,
+                    "newUnexpectedCount":  0,
+                    "incomingChangeCount":  2,
+                    "conflictCount":  1,
+                    "unchangedCount":  0
+                },
+    "classification":  {
+                           "hasDrift":  true,
+                           "hasConflict":  true,
+                           "recommendedAction":  "Stop deployment and review conflicting files."
+                       },
+    "files":  [
+                  {
+                      "relativePath":  "file1.dll",
+                      "baseline":  {
+                                       "relativePath":  "file1.dll",
+                                       "fullPath":  "D:\\users\\Brainer\\Documents\\Code\\BrainDrift\\_sample\\server\\file1.dll",
+                                       "hash":  "C97641DE36C553EDBFA5CEAF25BE977116A4F42031F6BFA0D617AA886BFDA55B",
+                                       "fileSize":  5,
+                                       "lastWriteTimeUtc":  "2026-05-30T17:22:19.3940968Z",
+                                       "hashAlgorithm":  "SHA256"
+                                   },
+                      "currentServer":  {
+                                            "relativePath":  "file1.dll",
+                                            "fullPath":  "D:\\users\\Brainer\\Documents\\Code\\BrainDrift\\_sample\\server\\file1.dll",
+                                            "hash":  "C97641DE36C553EDBFA5CEAF25BE977116A4F42031F6BFA0D617AA886BFDA55B",
+                                            "fileSize":  5,
+                                            "lastWriteTimeUtc":  "2026-05-30T17:22:19.3940968Z",
+                                            "hashAlgorithm":  "SHA256"
+                                        },
+                      "incomingPackage":  {
+                                              "relativePath":  "file1.dll",
+                                              "fullPath":  "D:\\users\\Brainer\\Documents\\Code\\BrainDrift\\_sample\\incoming\\file1.dll",
+                                              "hash":  "98E129DB552EB24CA40FE6442B25A198DD99F55D5B930A625B93466AE94CB094",
+                                              "fileSize":  5,
+                                              "lastWriteTimeUtc":  "2026-05-30T17:22:19.3960962Z",
+                                              "hashAlgorithm":  "SHA256"
+                                          },
+                      "baselineHash":  "C97641DE36C553EDBFA5CEAF25BE977116A4F42031F6BFA0D617AA886BFDA55B",
+                      "currentHash":  "C97641DE36C553EDBFA5CEAF25BE977116A4F42031F6BFA0D617AA886BFDA55B",
+                      "incomingHash":  "98E129DB552EB24CA40FE6442B25A198DD99F55D5B930A625B93466AE94CB094",
+                      "isMissing":  false,
+                      "isNewUnexpected":  false,
+                      "isModified":  false,
+                      "isConflict":  false,
+                      "classification":  "IncomingChangeOnly",
+                      "recommendedAction":  "Proceed with deployment."
+                  },
+                  {
+                      "relativePath":  "web.config",
+                      "baseline":  {
+                                       "relativePath":  "web.config",
+                                       "fullPath":  "D:\\users\\Brainer\\Documents\\Code\\BrainDrift\\_sample\\server\\web.config",
+                                       "hash":  "27A7E66599C27CBA73D1BF42ADB261BA7C100BC294868DA1AC288353CFC71F4B",
+                                       "fileSize":  5,
+                                       "lastWriteTimeUtc":  "2026-05-30T17:22:19.3930949Z",
+                                       "hashAlgorithm":  "SHA256"
+                                   },
+                      "currentServer":  {
+                                            "relativePath":  "web.config",
+                                            "fullPath":  "D:\\users\\Brainer\\Documents\\Code\\BrainDrift\\_sample\\server\\web.config",
+                                            "hash":  "987D2048C513790334F213B562A9C44FE0309CE4CDD4554B3D061D55EACE4BED",
+                                            "fileSize":  5,
+                                            "lastWriteTimeUtc":  "2026-05-30T17:22:19.5101549Z",
+                                            "hashAlgorithm":  "SHA256"
+                                        },
+                      "incomingPackage":  {
+                                              "relativePath":  "web.config",
+                                              "fullPath":  "D:\\users\\Brainer\\Documents\\Code\\BrainDrift\\_sample\\incoming\\web.config",
+                                              "hash":  "FB470BEAE68EBDD6BF0D2A3CFCE9B4394231C64A1DEA992A72210DD0A54F8171",
+                                              "fileSize":  5,
+                                              "lastWriteTimeUtc":  "2026-05-30T17:22:19.3950966Z",
+                                              "hashAlgorithm":  "SHA256"
+                                          },
+                      "baselineHash":  "27A7E66599C27CBA73D1BF42ADB261BA7C100BC294868DA1AC288353CFC71F4B",
+                      "currentHash":  "987D2048C513790334F213B562A9C44FE0309CE4CDD4554B3D061D55EACE4BED",
+                      "incomingHash":  "FB470BEAE68EBDD6BF0D2A3CFCE9B4394231C64A1DEA992A72210DD0A54F8171",
+                      "isMissing":  false,
+                      "isNewUnexpected":  false,
+                      "isModified":  true,
+                      "isConflict":  true,
+                      "classification":  "PotentialConflict",
+                      "recommendedAction":  "Stop deployment and review the conflicting file."
+                  }
+              ],
+    "recommendedAction":  "Stop deployment and review conflicting files."
+}

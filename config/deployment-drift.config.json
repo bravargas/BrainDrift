@@ -1,0 +1,20 @@
+{
+  "ApplicationName": "MyApp",
+  "EnvironmentName": "QA",
+  "RootPath": "C:\\inetpub\\MyApp",
+  "BaselinePath": "C:\\Deployments\\MyApp\\baseline\\last-successful-deployment.json",
+  "ReportPath": "C:\\Deployments\\MyApp\\reports",
+  "IncludePatterns": [
+    "web.config",
+    "*.config",
+    "*.json",
+    "*.xml",
+    "*.dll"
+  ],
+  "ExcludePatterns": [
+    "logs*",
+    "temp*",
+    "App_Data\\cache*"
+  ],
+  "HashAlgorithm": "SHA256"
+}
