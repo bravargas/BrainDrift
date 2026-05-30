@@ -1,26 +1,54 @@
 Describe 'DeploymentDrift Suite' {
     BeforeAll {
         $script:repoRoot = 'd:\users\Brainer\Documents\Code\BrainDrift'
-        $script:testSample = Join-Path $script:repoRoot '_sample\testrun'
-        Remove-Item -LiteralPath $script:testSample -Recurse -Force -ErrorAction SilentlyContinue
-
+        $envServer = $env:BD_SERVER_ROOT
         $script:scripts = Join-Path $script:repoRoot 'scripts'
-        $script:server = Join-Path $script:testSample 'server'
-        $script:incoming = Join-Path $script:testSample 'incoming'
-        $script:baseline = Join-Path $script:testSample 'baseline\last-successful-deployment.json'
-        $script:reports = Join-Path $script:testSample 'reports'
 
-        New-Item -ItemType Directory -Path $script:server -Force | Out-Null
-        New-Item -ItemType Directory -Path $script:incoming -Force | Out-Null
-        New-Item -ItemType Directory -Path (Split-Path $script:baseline -Parent) -Force | Out-Null
-        New-Item -ItemType Directory -Path $script:reports -Force | Out-Null
+        if ([string]::IsNullOrWhiteSpace($envServer)) {
+            # use isolated test sample (default)
+            $script:testSample = Join-Path $script:repoRoot '_sample\testrun'
+            Remove-Item -LiteralPath $script:testSample -Recurse -Force -ErrorAction SilentlyContinue
 
-        # create deterministic test files
-        Set-Content -LiteralPath (Join-Path $script:server 'file1.dll') -Value 'DLL_CONTENT_A' -Encoding ASCII
-        Set-Content -LiteralPath (Join-Path $script:server 'web.config') -Value 'SERVER_ORIG' -Encoding UTF8
+            $script:server = Join-Path $script:testSample 'server'
+            $script:incoming = Join-Path $script:testSample 'incoming'
+            $script:baseline = Join-Path $script:testSample 'baseline\last-successful-deployment.json'
+            $script:reports = Join-Path $script:testSample 'reports'
 
-        Set-Content -LiteralPath (Join-Path $script:incoming 'file1.dll') -Value 'DLL_CONTENT_B' -Encoding ASCII
-        Set-Content -LiteralPath (Join-Path $script:incoming 'web.config') -Value 'INCOMING_ORIG' -Encoding UTF8
+            New-Item -ItemType Directory -Path $script:server -Force | Out-Null
+            New-Item -ItemType Directory -Path $script:incoming -Force | Out-Null
+            New-Item -ItemType Directory -Path (Split-Path $script:baseline -Parent) -Force | Out-Null
+            New-Item -ItemType Directory -Path $script:reports -Force | Out-Null
+
+            # create deterministic test files
+            Set-Content -LiteralPath (Join-Path $script:server 'file1.dll') -Value 'DLL_CONTENT_A' -Encoding ASCII
+            Set-Content -LiteralPath (Join-Path $script:server 'web.config') -Value 'SERVER_ORIG' -Encoding UTF8
+
+            Set-Content -LiteralPath (Join-Path $script:incoming 'file1.dll') -Value 'DLL_CONTENT_B' -Encoding ASCII
+            Set-Content -LiteralPath (Join-Path $script:incoming 'web.config') -Value 'INCOMING_ORIG' -Encoding UTF8
+
+            $script:useRealServer = $false
+        }
+        else {
+            # run tests against a real server path (non-destructive)
+            $script:useRealServer = $true
+            $script:server = $envServer
+
+            $ts = (Get-Date).ToString('yyyyMMddHHmmss')
+            $script:testRoot = Join-Path $env:TEMP "BrainDriftTest_$ts"
+            New-Item -ItemType Directory -Path $script:testRoot -Force | Out-Null
+            $script:incoming = Join-Path $script:testRoot 'incoming'
+            $script:reports = Join-Path $script:testRoot 'reports'
+            $baselineDir = Join-Path $script:testRoot 'baseline'
+            New-Item -ItemType Directory -Path $script:incoming -Force | Out-Null
+            New-Item -ItemType Directory -Path $script:reports -Force | Out-Null
+            New-Item -ItemType Directory -Path $baselineDir -Force | Out-Null
+            $script:baseline = Join-Path $baselineDir 'last-successful-deployment.json'
+
+            # Create a safe incoming package area for tests (do not touch the real server)
+            # We will not modify the real server; tests that require server modification are skipped.
+            Set-Content -LiteralPath (Join-Path $script:incoming 'web.config') -Value 'INCOMING_TEST' -Encoding UTF8
+            Set-Content -LiteralPath (Join-Path $script:incoming 'file1.dll') -Value 'DLL_INCOMING_TEST' -Encoding ASCII
+        }
 
         $script:pw = 'powershell'
     }
@@ -48,10 +76,15 @@ Describe 'DeploymentDrift Suite' {
     }
 
     It 'Detects conflict when incoming package changes files' {
+        if ($script:useRealServer) {
+            Write-Host 'Skipping conflict test when using a real server path to avoid modifying production files.'
+            return
+        }
+
         # ensure incoming has a different content than baseline
         Set-Content -LiteralPath (Join-Path $script:incoming 'web.config') -Value 'INCOMING' -Encoding UTF8
 
-        # modify server to create a drift vs baseline
+        # modify server to create a drift vs baseline (only for local test sample)
         Set-Content -LiteralPath (Join-Path $script:server 'web.config') -Value 'SERVER_MODIFIED' -Encoding UTF8
 
         # generate manifest for incoming package
@@ -70,6 +103,11 @@ Describe 'DeploymentDrift Suite' {
     }
 
     AfterAll {
-        Remove-Item -LiteralPath $script:testSample -Recurse -Force -ErrorAction SilentlyContinue
+        if ($null -ne $script:testSample -and -not [string]::IsNullOrWhiteSpace($script:testSample) -and (Test-Path -LiteralPath $script:testSample)) {
+            Remove-Item -LiteralPath $script:testSample -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        elseif ($null -ne $script:testRoot -and -not [string]::IsNullOrWhiteSpace($script:testRoot) -and (Test-Path -LiteralPath $script:testRoot)) {
+            Remove-Item -LiteralPath $script:testRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 }

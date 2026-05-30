@@ -16,6 +16,8 @@ If B differs from A, then the server was modified after the last successful depl
 
 This repository implements that model with PowerShell scripts that can be run manually, scheduled, or called from Harness as part of a deployment pipeline.
 
+For a runnable example of the conflict gate in action, see the sample helper at `_sample\deploy-package\trigger-conflict.ps1`. It creates a controlled mismatch between the target server and the incoming package, then confirms that the pre-deployment gate blocks deployment when `classification.hasConflict` is set.
+
 ## Problem Statement
 
 Consider a simple release sequence.
@@ -164,6 +166,18 @@ It:
 - Writes a JSON drift report.
 - Returns a useful object for pipeline consumption.
 
+### `run-deploy.ps1`
+
+This sample orchestration script demonstrates how to combine the BrainDrift scripts with a deployment package.
+
+It:
+
+- Extracts a `.nupkg` when supplied.
+- Runs a pre-deployment drift check before copying files.
+- Stops immediately when the report flags a conflict.
+- Runs the deployment copy step only after the conflict gate passes.
+- Optionally promotes the deployed server state to a new baseline.
+
 ### `Export-DeploymentFileManifest.ps1`
 
 This script generates a manifest from an incoming package or deployment folder.
@@ -302,6 +316,16 @@ The following flow is recommended for Harness-based deployments.
 6. If the deployment succeeds, run `New-DeploymentBaseline.ps1` to create the new baseline.
 
 This sequence ensures that the baseline always represents the last successful deployment, not the last attempted deployment.
+
+### Conflict Demo
+
+The sample helper below shows the intended pre-deployment behavior without requiring a real deployment pipeline:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File _sample\deploy-package\trigger-conflict.ps1
+```
+
+It changes the target and incoming package in a controlled way, runs the simulator, and verifies that the process stops before deployment when a conflict is detected.
 
 For production environments, a manual approval step in Harness is strongly recommended when drift is detected or when a deployment affects critical configuration files.
 

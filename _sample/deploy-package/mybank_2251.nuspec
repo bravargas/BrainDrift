@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<package>
+  <metadata>
+    <id>mybank_2251</id>
+    <version>1.0.0</version>
+    <authors>BrainDriftSample</authors>
+    <owners>BrainDriftSample</owners>
+    <licenseUrl>https://opensource.org/licenses/MIT</licenseUrl>
+    <projectUrl>https://example.local/brain-drift-sample</projectUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <description>Sample package containing web.config and file1.dll for BrainDrift integration tests.</description>
+    <tags>deployment drift sample</tags>
+  </metadata>
+  <files>
+    <file src="package-content\web.config" target="content" />
+    <file src="package-content\file1.dll" target="content" />
+  </files>
+</package>
