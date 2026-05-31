@@ -212,7 +212,6 @@ try {
             '-EnvironmentName', $EnvironmentName,
             '-RootPath', $RootPath,
             '-BaselinePath', $BaselinePath,
-            '-IncomingPackagePath', $IncomingPackagePath,
             '-ReportPath', $precheckReports
         )
 
@@ -317,9 +316,9 @@ try {
 
     # 1) pre-deployment manifest export
     Write-Stage 'run-deploy:: STEP: Pre-deployment manifest export (predeploy.ps1)' 'Blue'
-    Write-Log "run-deploy:: Invoking predeploy.ps1 -IncomingPackagePath $IncomingPackagePath -StagingPath $staging" 'Yellow'
+    Write-Log "run-deploy:: Invoking predeploy.ps1 -SourcePath $IncomingPackagePath -StagingPath $staging" 'Yellow'
     $script:Summary.PredeployInvoked = $true
-    & $pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'predeploy.ps1') -IncomingPackagePath $IncomingPackagePath -StagingPath $staging
+    & $pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'predeploy.ps1') -SourcePath $IncomingPackagePath -StagingPath $staging
     $predeployExit = $LASTEXITCODE
     $script:Summary.PredeployExit = $predeployExit
     Write-Log "run-deploy:: predeploy.ps1 exit code: $predeployExit" 'Yellow'
@@ -327,9 +326,9 @@ try {
 
     # 2) deploy: apply files
     Write-Stage 'run-deploy:: STEP: Deploy - applying files (deploy.ps1)' 'Blue'
-    Write-Log "run-deploy:: Invoking deploy.ps1 -IncomingPackagePath $IncomingPackagePath -RootPath $RootPath -Apply" 'Yellow'
+    Write-Log "run-deploy:: Invoking deploy.ps1 -SourcePath $IncomingPackagePath -RootPath $RootPath -Apply" 'Yellow'
     $script:Summary.DeployInvoked = $true
-    & $pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'deploy.ps1') -IncomingPackagePath $IncomingPackagePath -RootPath $RootPath -Apply
+    & $pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'deploy.ps1') -SourcePath $IncomingPackagePath -RootPath $RootPath -Apply
     $deployExit = $LASTEXITCODE
     $script:Summary.DeployExit = $deployExit
     Write-Log "run-deploy:: deploy.ps1 exit code: $deployExit" 'Yellow'

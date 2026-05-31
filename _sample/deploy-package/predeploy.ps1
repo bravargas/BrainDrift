@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory=$true)]
-    [string]$IncomingPackagePath,
+    [string]$SourcePath,
 
     [Parameter(Mandatory=$true)]
     [string]$StagingPath,
@@ -19,8 +19,8 @@ $ErrorActionPreference = 'Stop'
 
 Write-Host "predeploy:: START"
 
-if (-not (Test-Path -LiteralPath $IncomingPackagePath -PathType Container)) {
-    Write-Host "predeploy:: ERROR: Incoming path not found: $IncomingPackagePath"
+if (-not (Test-Path -LiteralPath $SourcePath -PathType Container)) {
+    Write-Host "predeploy:: ERROR: Source path not found: $SourcePath"
     exit 2
 }
 
@@ -33,7 +33,7 @@ $manifestPath = Join-Path $StagingPath 'incoming-manifest.json'
 
 Write-Host "predeploy:: Exporting incoming manifest to $manifestPath"
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot '..\..\scripts\Export-DeploymentFileManifest.ps1') `
-    -SourcePath $IncomingPackagePath -ManifestPath $manifestPath -IncludePatterns $IncludePatterns -HashAlgorithm $HashAlgorithm | Out-Null
+    -SourcePath $SourcePath -ManifestPath $manifestPath -IncludePatterns $IncludePatterns -HashAlgorithm $HashAlgorithm | Out-Null
 
 Write-Host "predeploy:: DONE"
 Write-Output @{ ManifestPath = $manifestPath }

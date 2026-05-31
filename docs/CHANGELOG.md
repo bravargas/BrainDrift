@@ -21,7 +21,10 @@
 - Added a regression test that verifies server-side `web.config` drift returns exit code `1` when `-FailOnDrift` is enabled.
 - Updated `_sample/deploy-package/run-deploy.ps1` so `-FailOnDrift` blocks the bootstrap path when the baseline file is missing instead of auto-creating a baseline and continuing.
 - 2026-05-30: Renamed and standardized CLI parameter names across tools to the canonical `Test-DeploymentDrift.ps1` interface:
-	- `IncomingPackagePath`, `RootPath`, `BaselinePath`, `ReportPath` are the canonical parameter names used by `run-deploy.ps1` and sample package scripts.
+	- `RootPath`, `BaselinePath`, `ReportPath` are canonical parameter names used by `run-deploy.ps1`.
+	- Sample package scripts (`deploy.ps1`, `predeploy.ps1`) now use `SourcePath` for the incoming package content.
+
+- 2026-05-31: Removed `IncomingPackagePath` from `scripts/Test-DeploymentDrift.ps1`. The script now detects an `incoming-manifest.json` in the configured `ReportPath` (if present) to use as incoming inventory for comparison. Sample deploy scripts were updated to accept `SourcePath` for package content; orchestration via `run-deploy.ps1` continues to accept `-IncomingPackagePath` and forwards the extracted content to `predeploy.ps1`/`deploy.ps1` as `-SourcePath`.
 	- Removed backwards-compatibility aliases; all examples and orchestration use the new names.
 - 2026-05-30: Hardened `scripts\New-DeploymentBaseline.ps1` to normalize `IncludePatterns`/`ExcludePatterns` to arrays and ensure inventory results are array-wrapped so `fileCount` calculations do not fail on singleton results.
 - 2026-05-30: Updated sample scripts (`deploy.ps1`, `predeploy.ps1`, `trigger-conflict.ps1`) and docs to use the new parameter names, and updated `docs/DeploymentDrift.Usage.md` examples accordingly.

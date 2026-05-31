@@ -25,7 +25,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test-DeploymentDri
   -ApplicationName 'MyApp' -EnvironmentName 'Prod' `
   -RootPath 'C:\inetpub\wwwroot' `
   -BaselinePath 'C:\deploy\baseline\last-successful-deployment.json' `
-  -IncomingPackagePath 'C:\staging\pkg' `
+  -ReportPath 'C:\deploy\reports'
   -ReportPath 'C:\deploy\reports'
 ```
 

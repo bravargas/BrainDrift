@@ -11,10 +11,7 @@ param(
 
     [Parameter(Mandatory = $true)]
     [string]$BaselinePath,
-
-    [Parameter(Mandatory = $false)]
-    [string]$IncomingPackagePath,
-
+    
     [Parameter(Mandatory = $true)]
     [string]$ReportPath,
 
@@ -68,7 +65,6 @@ try {
     Write-Host "$($MyInvocation.MyCommand.Name):: EnvironmentName     : $EnvironmentName"
     Write-Host "$($MyInvocation.MyCommand.Name):: RootPath            : $RootPath"
     Write-Host "$($MyInvocation.MyCommand.Name):: BaselinePath        : $BaselinePath"
-    Write-Host "$($MyInvocation.MyCommand.Name):: IncomingPackagePath : $IncomingPackagePath"
     Write-Host "$($MyInvocation.MyCommand.Name):: ReportPath          : $ReportPath"
     Write-Host "$($MyInvocation.MyCommand.Name):: FailOnDrift         : $FailOnDrift"
     Write-Host "$($MyInvocation.MyCommand.Name):: SkipBaselineCreation : $SkipBaselineCreation"
@@ -106,38 +102,36 @@ try {
             if ([string]::IsNullOrWhiteSpace($createdBy)) { $createdBy = $env:USERNAME }
 
             $result = [pscustomobject]@{
-                reportPath = $null
-                applicationName = $ApplicationName
-                environmentName = $EnvironmentName
-                rootPath = $RootPath
-                baselinePath = $BaselinePath
-                incomingPackagePath = $IncomingPackagePath
-                hashAlgorithm = $HashAlgorithm
-                hasDrift = $false
-                hasConflict = $false
-                baselineMissing = $true
-                summary = [pscustomobject]@{
-                    baselineFileCount = 0
-                    currentFileCount = 0
-                    incomingFileCount = if ([string]::IsNullOrWhiteSpace($IncomingPackagePath)) { 0 } else { 0 }
-                    modifiedCount = 0
-                    missingCount = 0
-                    newUnexpectedCount = 0
+                reportPath        = $null
+                applicationName   = $ApplicationName
+                environmentName   = $EnvironmentName
+                rootPath          = $RootPath
+                baselinePath      = $BaselinePath
+                hashAlgorithm     = $HashAlgorithm
+                hasDrift          = $false
+                hasConflict       = $false
+                baselineMissing   = $true
+                summary           = [pscustomobject]@{
+                    baselineFileCount   = 0
+                    currentFileCount    = 0
+                    incomingFileCount   = 0
+                    modifiedCount       = 0
+                    missingCount        = 0
+                    newUnexpectedCount  = 0
                     incomingChangeCount = 0
-                    conflictCount = 0
-                    unchangedCount = 0
+                    conflictCount       = 0
+                    unchangedCount      = 0
                 }
-                files = @()
+                files             = @()
                 recommendedAction = 'Baseline file is missing. Create an initial baseline from a trusted, validated server state before enabling drift detection.'
-                metadata = [pscustomobject]@{
+                metadata          = [pscustomobject]@{
                     applicationName = $ApplicationName
                     environmentName = $EnvironmentName
-                    rootPath = $RootPath
-                    baselinePath = $BaselinePath
-                    incomingPackagePath = $IncomingPackagePath
-                    generatedAtUtc = $createdAtUtc
-                    generatedBy = $createdBy
-                    hashAlgorithm = $HashAlgorithm
+                    rootPath        = $RootPath
+                    baselinePath    = $BaselinePath
+                    generatedAtUtc  = $createdAtUtc
+                    generatedBy     = $createdBy
+                    hashAlgorithm   = $HashAlgorithm
                 }
             }
 
@@ -151,12 +145,33 @@ try {
     $baselineInventory = $baselineDocument.files
     $currentInventory = Get-FileInventory -RootPath $RootPath -IncludePatterns $IncludePatterns -ExcludePatterns $ExcludePatterns -HashAlgorithm $HashAlgorithm
 
+    # If an incoming manifest was previously exported to the report folder, prefer that as the incoming inventory.
     $incomingInventory = $null
-    if (-not [string]::IsNullOrWhiteSpace($IncomingPackagePath)) {
-        $incomingInventory = Get-FileInventory -RootPath $IncomingPackagePath -IncludePatterns $IncludePatterns -ExcludePatterns $ExcludePatterns -HashAlgorithm $HashAlgorithm
+    try {
+        $manifestCandidate = Join-Path -Path $ReportPath -ChildPath 'incoming-manifest.json'
+        if (Test-Path -LiteralPath $manifestCandidate -PathType Leaf) {
+            try {
+                $manifestDoc = Read-JsonFile -Path $manifestCandidate
+                if ($null -ne $manifestDoc -and $manifestDoc.files) {
+                    $incomingInventory = $manifestDoc.files
+                }
+            }
+            catch {
+                # ignore manifest read errors and continue without incoming inventory
+                $incomingInventory = $null
+            }
+        }
+    }
+    catch {
+        $incomingInventory = $null
     }
 
-    $comparison = Compare-FileInventories -BaselineInventory $baselineInventory -CurrentInventory $currentInventory -IncomingInventory $incomingInventory
+    if ($null -ne $incomingInventory) {
+        $comparison = Compare-FileInventories -BaselineInventory $baselineInventory -CurrentInventory $currentInventory -IncomingInventory $incomingInventory
+    }
+    else {
+        $comparison = Compare-FileInventories -BaselineInventory $baselineInventory -CurrentInventory $currentInventory
+    }
 
     $createdAtUtc = [System.DateTime]::UtcNow.ToString('o')
     $createdBy = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
@@ -167,12 +182,11 @@ try {
     $reportMetadata = [pscustomobject]@{
         applicationName = $ApplicationName
         environmentName = $EnvironmentName
-        rootPath = $RootPath
-        baselinePath = $BaselinePath
-        incomingPackagePath = $IncomingPackagePath
-        generatedAtUtc = $createdAtUtc
-        generatedBy = $createdBy
-        hashAlgorithm = $HashAlgorithm
+        rootPath        = $RootPath
+        baselinePath    = $BaselinePath
+        generatedAtUtc  = $createdAtUtc
+        generatedBy     = $createdBy
+        hashAlgorithm   = $HashAlgorithm
     }
 
     $report = New-DriftReport -Metadata $reportMetadata -ComparisonResult $comparison
@@ -195,17 +209,16 @@ try {
     Write-JsonFile -InputObject $report -Path $reportTargetPath -Depth 50 | Out-Null
 
     $result = [pscustomobject]@{
-        reportPath = $reportTargetPath
-        applicationName = $ApplicationName
-        environmentName = $EnvironmentName
-        rootPath = $RootPath
-        baselinePath = $BaselinePath
-        incomingPackagePath = $IncomingPackagePath
-        hashAlgorithm = $HashAlgorithm
-        hasDrift = $comparison.hasDrift
-        hasConflict = $comparison.hasConflict
-        summary = $comparison.summary
-        files = $comparison.files
+        reportPath        = $reportTargetPath
+        applicationName   = $ApplicationName
+        environmentName   = $EnvironmentName
+        rootPath          = $RootPath
+        baselinePath      = $BaselinePath
+        hashAlgorithm     = $HashAlgorithm
+        hasDrift          = $comparison.hasDrift
+        hasConflict       = $comparison.hasConflict
+        summary           = $comparison.summary
+        files             = $comparison.files
         recommendedAction = $report.recommendedAction
     }
 

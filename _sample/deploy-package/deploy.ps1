@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory=$true)]
-    [string]$IncomingPackagePath,
+    [string]$SourcePath,
 
     [Parameter(Mandatory=$true)]
     [string]$RootPath,
@@ -61,8 +61,8 @@ function Copy-DeploymentFile {
     }
 }
 
-    if (-not (Test-Path -LiteralPath $IncomingPackagePath -PathType Container)) {
-    Write-Host "deploy:: ERROR: Incoming path not found: $IncomingPackagePath"
+    if (-not (Test-Path -LiteralPath $SourcePath -PathType Container)) {
+    Write-Host "deploy:: ERROR: Source path not found: $SourcePath"
     exit 2
 }
 if (-not (Test-Path -LiteralPath $RootPath -PathType Container)) {
@@ -70,10 +70,10 @@ if (-not (Test-Path -LiteralPath $RootPath -PathType Container)) {
     New-Item -Path $RootPath -ItemType Directory -Force | Out-Null
 }
 
-if (-not $Apply.IsPresent) {
-    Write-Host "deploy:: Dry run - files that would be copied from ${IncomingPackagePath} to ${RootPath}:"
-    Get-ChildItem -Path $IncomingPackagePath -Recurse -File | ForEach-Object {
-        $rel = $_.FullName.Substring($IncomingPackagePath.Length).TrimStart('\', '/')
+    if (-not $Apply.IsPresent) {
+    Write-Host "deploy:: Dry run - files that would be copied from ${SourcePath} to ${RootPath}:"
+    Get-ChildItem -Path $SourcePath -Recurse -File | ForEach-Object {
+        $rel = $_.FullName.Substring($SourcePath.Length).TrimStart('\', '/')
         $targetRel = Get-TargetRelativePath -RelativePath $rel
         Write-Host "  $rel -> $targetRel"
     }
@@ -81,10 +81,10 @@ if (-not $Apply.IsPresent) {
     exit 0
 }
 
-try {
+    try {
     Write-Host "deploy:: Applying deployment (copying files)"
-    Get-ChildItem -Path $IncomingPackagePath -Recurse -File | ForEach-Object {
-        $result = Copy-DeploymentFile -SourceFile $_.FullName -SourceRoot $IncomingPackagePath -TargetRoot $RootPath
+    Get-ChildItem -Path $SourcePath -Recurse -File | ForEach-Object {
+        $result = Copy-DeploymentFile -SourceFile $_.FullName -SourceRoot $SourcePath -TargetRoot $RootPath
         Write-Host "deploy:: Copied $($result.RelativePath) -> $($result.TargetPath)"
     }
     Write-Host "deploy:: Deployment completed successfully"

@@ -13,7 +13,7 @@ param(
     [string]$ReportPath,
 
     [Parameter(Mandatory=$false)]
-    [string]$IncomingPackagePath,
+    [string]$SourcePath,
 
     [Parameter(Mandatory=$false)]
     [string]$ServerValue = 'SERVER_B',
@@ -42,8 +42,8 @@ if ([string]::IsNullOrWhiteSpace($BaselinePath)) {
 if ([string]::IsNullOrWhiteSpace($ReportPath)) {
     $ReportPath = Join-Path $env:TEMP 'BrainDriftReports'
 }
-if ([string]::IsNullOrWhiteSpace($IncomingPackagePath)) {
-    $IncomingPackagePath = Join-Path $env:TEMP 'BrainDriftIncomingConflict'
+if ([string]::IsNullOrWhiteSpace($SourcePath)) {
+    $SourcePath = Join-Path $env:TEMP 'BrainDriftIncomingConflict'
 }
 
 $resolvedTemplatePath = (Resolve-Path -LiteralPath $TemplatePath).Path
@@ -71,16 +71,16 @@ if (-not (Test-Path -LiteralPath $BaselinePath -PathType Leaf)) {
     }
 }
 
-if (Test-Path -LiteralPath $IncomingPackagePath) {
-    Remove-Item -LiteralPath $IncomingPackagePath -Recurse -Force
+if (Test-Path -LiteralPath $SourcePath) {
+    Remove-Item -LiteralPath $SourcePath -Recurse -Force
 }
-New-Item -Path $IncomingPackagePath -ItemType Directory -Force | Out-Null
+New-Item -Path $SourcePath -ItemType Directory -Force | Out-Null
 Get-ChildItem -LiteralPath $resolvedTemplatePath -Force | ForEach-Object {
-    Copy-Item -LiteralPath $_.FullName -Destination $IncomingPackagePath -Recurse -Force
+    Copy-Item -LiteralPath $_.FullName -Destination $SourcePath -Recurse -Force
 }
 
 $targetWebConfig = Join-Path $RootPath 'web.config'
-$incomingWebConfig = Join-Path $IncomingPackagePath 'web.config'
+$incomingWebConfig = Join-Path $SourcePath 'web.config'
 
 if (-not (Test-Path -LiteralPath $targetWebConfig -PathType Leaf)) {
     throw "Target web.config not found: $targetWebConfig"
@@ -94,7 +94,7 @@ Set-Content -LiteralPath $targetWebConfig -Value $ServerValue -Encoding UTF8
 Set-Content -LiteralPath $incomingWebConfig -Value $PackageValue -Encoding UTF8
 
 & powershell -NoProfile -ExecutionPolicy Bypass -File $runDeployPath `
-    -IncomingPackagePath $IncomingPackagePath -RootPath $RootPath -BaselinePath $BaselinePath -ReportPath $ReportPath
+    -IncomingPackagePath $SourcePath -RootPath $RootPath -BaselinePath $BaselinePath -ReportPath $ReportPath
 $runDeployExit = $LASTEXITCODE
 
 $precheckReports = Join-Path (Join-Path $env:TEMP 'BrainDriftDeployStaging') 'precheck-reports'
@@ -122,7 +122,7 @@ Write-Output ([pscustomobject]@{
     Status = 'ConflictTriggered'
     ExitCode = $runDeployExit
     RootPath = $RootPath
-    IncomingPackagePath = $IncomingPackagePath
+    IncomingPackagePath = $SourcePath
     BaselinePath = $BaselinePath
     ReportPath = $precheckReport.FullName
 })

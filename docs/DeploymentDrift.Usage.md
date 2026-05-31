@@ -8,7 +8,7 @@ powershell.exe -ExecutionPolicy Bypass -File .\scripts\Test-DeploymentDrift.ps1 
   -EnvironmentName "QA" `
   -RootPath "$env:TEMP\BrainDriftDeployTarget" `
   -BaselinePath "$env:TEMP\bd-baseline.json" `
-  -IncomingPackagePath ".\_sample\deploy-package\packages\mybank_2251.1.0.0.nupkg" `
+  
   -ReportPath "$env:TEMP\BrainDriftReports" `
   -FailOnDrift `
   -IncludePatterns "web.config","*.config","*.json","*.xml","*.dll" `
@@ -76,7 +76,7 @@ $baseline = "$env:TEMP\\bd-baseline.json"
 $reports = "$env:TEMP\\BrainDriftReports"
 
 # dry run
-powershell -NoProfile -ExecutionPolicy Bypass -File _sample\deploy-package\deploy.ps1 -IncomingPackagePath $incoming -RootPath $target
+powershell -NoProfile -ExecutionPolicy Bypass -File _sample\deploy-package\deploy.ps1 -SourcePath $incoming -RootPath $target
 
 # real run, orchestrated with BrainDrift drift gate and automatic baseline refresh
 powershell -NoProfile -ExecutionPolicy Bypass -File _sample\deploy-package\run-deploy.ps1 `

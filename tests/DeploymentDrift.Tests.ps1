@@ -159,7 +159,7 @@ Describe 'DeploymentDrift Suite' {
 
         & $script:pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:scripts 'Test-DeploymentDrift.ps1') `
             -ApplicationName 'Sample' -EnvironmentName 'TEST' -RootPath $script:server `
-            -BaselinePath $script:baselineInitial -IncomingPackagePath $script:incoming -ReportPath $script:reports -IncludePatterns '*' | Out-Null
+            -BaselinePath $script:baselineInitial -ReportPath $script:reports -IncludePatterns '*' | Out-Null
 
         $report2 = Get-ChildItem -Path $script:reports -Filter 'drift-report-*.json' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
         Test-Path $report2.FullName | Should -BeTrue
