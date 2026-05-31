@@ -6,6 +6,7 @@
 - Added baseline generation, drift testing, and file manifest export scripts.
 - Added a shared PowerShell module for inventory, JSON, pattern matching, and drift report generation.
 - Added example configuration and Harness-friendly usage examples.
+- Added a production NuGet manifest (`BrainDrift.nuspec`) and a minimal production usage guide for direct script-block integration.
 - Added controlled handling and documentation for deployment-zero scenarios where the baseline file does not yet exist.
 - Added `.nupkg` simulator support and a pre-deployment conflict gate that stops deployment when the drift report flags a conflict.
 - Added a single-command conflict trigger helper for the sample deployment package.
@@ -25,6 +26,9 @@
 	- Sample package scripts (`deploy.ps1`, `predeploy.ps1`) now use `SourcePath` for the incoming package content.
 
 - 2026-05-31: Removed `IncomingPackagePath` from `scripts/Test-DeploymentDrift.ps1`. The script now detects an `incoming-manifest.json` in the configured `ReportPath` (if present) to use as incoming inventory for comparison. Sample deploy scripts were updated to accept `SourcePath` for package content; orchestration via `run-deploy.ps1` continues to accept `-IncomingPackagePath` and forwards the extracted content to `predeploy.ps1`/`deploy.ps1` as `-SourcePath`.
+- 2026-05-31: Added baseline archival to `scripts/New-DeploymentBaseline.ps1`. When a baseline is regenerated, the previous file is copied to `archive\<baseline-name>\` with timestamped filenames so historical baselines remain available for root cause analysis.
+- 2026-05-31: Added baseline archive retention to `scripts/New-DeploymentBaseline.ps1`. By default, each baseline archive keeps the 10 most recent historical copies; callers can pass `-ArchiveRetentionCount` to tune or disable cleanup.
+- 2026-05-31: Moved the default archive retention setting into `config/deployment-drift.config.json` as `ArchiveRetentionCount`. `New-DeploymentBaseline.ps1` now reads that value by default and still allows `-ArchiveRetentionCount` to override it.
 	- Removed backwards-compatibility aliases; all examples and orchestration use the new names.
 - 2026-05-30: Hardened `scripts\New-DeploymentBaseline.ps1` to normalize `IncludePatterns`/`ExcludePatterns` to arrays and ensure inventory results are array-wrapped so `fileCount` calculations do not fail on singleton results.
 - 2026-05-30: Updated sample scripts (`deploy.ps1`, `predeploy.ps1`, `trigger-conflict.ps1`) and docs to use the new parameter names, and updated `docs/DeploymentDrift.Usage.md` examples accordingly.

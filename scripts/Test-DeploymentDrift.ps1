@@ -193,11 +193,18 @@ try {
 
     $reportTargetPath = $ReportPath
     $reportExtension = [System.IO.Path]::GetExtension($ReportPath)
+
+    # Create safe filename parts from ApplicationName and EnvironmentName
+    $appSafe = if ($null -ne $ApplicationName) { ($ApplicationName -replace '[^A-Za-z0-9_-]','_') } else { 'app' }
+    $envSafe = if ($null -ne $EnvironmentName) { ($EnvironmentName -replace '[^A-Za-z0-9_-]','_') } else { 'env' }
+    $timestamp = [System.DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss')
+
+    # When ReportPath is a directory (no .json extension passed), include app/env in filename
     if ($reportExtension -ne '.json') {
         if (-not (Test-Path -LiteralPath $ReportPath -PathType Container)) {
             New-Item -Path $ReportPath -ItemType Directory -Force -ErrorAction Stop | Out-Null
         }
-        $reportTargetPath = Join-Path $ReportPath ('drift-report-{0}.json' -f ([System.DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss')))
+        $reportTargetPath = Join-Path $ReportPath ("drift-report-{0}-{1}-{2}.json" -f $appSafe, $envSafe, $timestamp)
     }
     else {
         $reportDirectory = Split-Path -Path $ReportPath -Parent

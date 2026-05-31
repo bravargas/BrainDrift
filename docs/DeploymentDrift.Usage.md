@@ -88,7 +88,7 @@ Notes:
 - Customize `IncludePatterns` / `ExcludePatterns` and hash algorithm by editing the example scripts or calling the BrainDrift scripts directly from your pipeline.
 - The orchestration script treats a missing baseline as deployment zero, logs a warning, and continues with `predeploy` and `deploy`.
 - If a baseline exists and drift is detected, `run-deploy.ps1` stops before `predeploy` and `deploy`.
-- After a successful deployment, `run-deploy.ps1` always refreshes the baseline so it represents the last successful deployment.
+- After a successful deployment, `run-deploy.ps1` refreshes the baseline and archives the previous baseline version for root cause analysis.
 
 Passing the `-FailOnDrift` option
 -------------------------------
@@ -107,6 +107,8 @@ Examples:
 # Continue on drift (switch omitted)
 .\_sample\deploy-package\run-deploy.ps1 -IncomingPackagePath $incoming -RootPath $target -BaselinePath $baseline -ReportPath $reports -ApplicationName 'mybank' -EnvironmentName 'prod'
 ```
+
+Baseline promotion now keeps history by copying the prior baseline to an `archive\<baseline-name>\` folder before the active file is overwritten. By default, `New-DeploymentBaseline.ps1` reads `ArchiveRetentionCount` from `config\deployment-drift.config.json`; the repository sample sets that value to `10`. You can override it with `-ArchiveRetentionCount` or set it to `0` to keep all archived copies.
 
 Integration notes:
 
@@ -157,3 +159,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -File _sample\deploy-package\trigg
 ```
 
 That helper leaves the target and incoming package in a conflicting state, runs the simulator, and reports the conflict report path.
+
+## Configuration example
+
+The sample config file at `config\deployment-drift.config.json` can control the default archive retention used by `New-DeploymentBaseline.ps1`.
+
+```json
+{
+  "ApplicationName": "MyApp",
+  "EnvironmentName": "QA",
+  "RootPath": "C:\\inetpub\\MyApp",
+  "BaselinePath": "C:\\Deployments\\MyApp\\baseline\\last-successful-deployment.json",
+  "ReportPath": "C:\\Deployments\\MyApp\\reports",
+  "IncludePatterns": ["web.config", "*.config", "*.json", "*.xml", "*.dll"],
+  "ExcludePatterns": ["logs*", "temp*", "App_Data\\cache*"],
+  "HashAlgorithm": "SHA256",
+  "ArchiveRetentionCount": 10
+}
+```
+
+Set `ArchiveRetentionCount` to `0` if you want to keep every archived baseline version.

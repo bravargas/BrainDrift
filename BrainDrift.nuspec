@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<package>
+  <metadata>
+    <id>BrainDrift</id>
+    <version>1.0.0</version>
+    <authors>Brainer</authors>
+    <owners>Brainer</owners>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <description>Production PowerShell package for deployment drift detection, baseline creation, and manifest export.</description>
+    <tags>powershell deployment drift baseline</tags>
+  </metadata>
+  <files>
+    <file src="src\DeploymentDrift.Common.psm1" target="src" />
+    <file src="src\DeploymentDrift.Common.psd1" target="src" />
+    <file src="scripts\New-DeploymentBaseline.ps1" target="scripts" />
+    <file src="scripts\Test-DeploymentDrift.ps1" target="scripts" />
+    <file src="scripts\Export-DeploymentFileManifest.ps1" target="scripts" />
+    <file src="config\deployment-drift.config.json" target="config" />
+    <file src="docs\Production-Usage.md" target="docs" />
+  </files>
+</package>

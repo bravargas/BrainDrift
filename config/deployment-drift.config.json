@@ -1,9 +1,9 @@
 {
-  "ApplicationName": "MyApp",
-  "EnvironmentName": "QA",
-  "RootPath": "C:\\inetpub\\MyApp",
-  "BaselinePath": "C:\\Deployments\\MyApp\\baseline\\last-successful-deployment.json",
-  "ReportPath": "C:\\Deployments\\MyApp\\reports",
+  "ApplicationName": "XD",
+  "EnvironmentName": "PDX",
+  "RootPath": "C:\\Architect\\2251_MU",
+  "BaselinePath": "C:\\Deployments\\baseline\\last-successful-deployment.json",
+  "ReportPath": "C:\\Deployments\\reports",
   "IncludePatterns": [
     "web.config",
     "*.config",
@@ -16,5 +16,6 @@
     "temp*",
     "App_Data\\cache*"
   ],
-  "HashAlgorithm": "SHA256"
+  "HashAlgorithm": "SHA256",
+  "ArchiveRetentionCount": 10
 }

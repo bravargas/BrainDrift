@@ -149,6 +149,8 @@ It:
 - Calculates hashes.
 - Stores relative path, hash, file size, last write time, and hash algorithm.
 - Saves the result as JSON.
+- Archives any existing baseline to a versioned `archive\<baseline-name>\` folder before overwriting the active baseline file.
+- Retains the 10 most recent archived baselines by default; callers can override this with `-ArchiveRetentionCount`.
 - Returns a PowerShell object for automation or troubleshooting.
 
 ### `Test-DeploymentDrift.ps1`
@@ -176,7 +178,7 @@ It:
 - Runs a pre-deployment drift check before copying files.
 - Stops immediately when the report flags a conflict.
 - Runs the deployment copy step only after the conflict gate passes.
-- Optionally promotes the deployed server state to a new baseline.
+- Optionally promotes the deployed server state to a new baseline and archives the previous baseline version.
 
 ### `Export-DeploymentFileManifest.ps1`
 
@@ -196,6 +198,8 @@ It:
 This JSON file provides example configuration values for a typical application.
 
 It is intended as a reusable starting point for deployment teams and pipeline authors.
+
+It can also control baseline archive retention through `ArchiveRetentionCount`, which `scripts\New-DeploymentBaseline.ps1` uses by default unless the caller passes `-ArchiveRetentionCount` explicitly.
 
 ## Baseline JSON Example
 

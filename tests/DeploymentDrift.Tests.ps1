@@ -167,6 +167,77 @@ Describe 'DeploymentDrift Suite' {
         $reportObj2.classification.hasConflict | Should -BeTrue
     }
 
+    It 'Archives the previous baseline when it is regenerated' {
+        if ($script:useRealServer) {
+            Write-Host 'Skipping archive test when using a real server path to avoid modifying production files.'
+            return
+        }
+
+        if (-not (Test-Path -LiteralPath $script:baseline -PathType Leaf)) {
+            if ($null -ne $script:baselineInitial -and (Test-Path -LiteralPath $script:baselineInitial -PathType Leaf)) {
+                Copy-Item -LiteralPath $script:baselineInitial -Destination $script:baseline -Force
+            }
+            else {
+                & $script:pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:scripts 'New-DeploymentBaseline.ps1') `
+                    -ApplicationName 'Sample' -DeploymentId 'TEST-BASELINE' -EnvironmentName 'TEST' -ServerName 'LOCAL' `
+                    -RootPath $script:server -BaselinePath $script:baseline -IncludePatterns '*' | Out-Null
+
+                $LASTEXITCODE | Should -Be 0
+            }
+        }
+
+        if ($null -eq $script:baselineInitial -or -not (Test-Path -LiteralPath $script:baselineInitial -PathType Leaf)) {
+            $script:baselineInitial = Join-Path (Split-Path -Path $script:baseline -Parent) 'initial-last-successful-deployment.json'
+            Copy-Item -LiteralPath $script:baseline -Destination $script:baselineInitial -Force
+        }
+
+        $configDirectory = Join-Path (Split-Path -Path $script:baseline -Parent) 'config'
+        New-Item -ItemType Directory -Path $configDirectory -Force | Out-Null
+        $configPath = Join-Path $configDirectory 'deployment-drift.config.json'
+        Set-Content -LiteralPath $configPath -Value (@{ ArchiveRetentionCount = 1 } | ConvertTo-Json) -Encoding UTF8
+
+        $archiveFolder = Join-Path (Split-Path -Path $script:baseline -Parent) 'archive'
+        $archiveFolder = Join-Path $archiveFolder ([System.IO.Path]::GetFileNameWithoutExtension($script:baseline))
+        if (Test-Path -LiteralPath $archiveFolder) {
+            Remove-Item -LiteralPath $archiveFolder -Recurse -Force -ErrorAction SilentlyContinue
+        }
+
+        $originalBaselineContent = Get-Content -LiteralPath $script:baseline -Raw
+        $originalServerWebConfig = Get-Content -LiteralPath (Join-Path $script:server 'web.config') -Raw
+
+        try {
+            Set-Content -LiteralPath (Join-Path $script:server 'web.config') -Value 'SERVER_REFRESHED_1' -Encoding UTF8
+
+            & $script:pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:scripts 'New-DeploymentBaseline.ps1') `
+                -ApplicationName 'Sample' -DeploymentId 'TEST-REFRESH-1' -EnvironmentName 'TEST' -ServerName 'LOCAL' `
+                -RootPath $script:server -BaselinePath $script:baseline -ConfigPath $configPath -IncludePatterns '*' | Out-Null
+
+            Test-Path -LiteralPath $archiveFolder | Should -BeTrue
+
+            Set-Content -LiteralPath (Join-Path $script:server 'web.config') -Value 'SERVER_REFRESHED_2' -Encoding UTF8
+
+            & $script:pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:scripts 'New-DeploymentBaseline.ps1') `
+                -ApplicationName 'Sample' -DeploymentId 'TEST-REFRESH-2' -EnvironmentName 'TEST' -ServerName 'LOCAL' `
+                -RootPath $script:server -BaselinePath $script:baseline -ConfigPath $configPath -IncludePatterns '*' | Out-Null
+
+            Test-Path -LiteralPath $script:baseline | Should -BeTrue
+
+            $archivedBaselines = Get-ChildItem -Path $archiveFolder -Filter '*.baseline.json' -File | Sort-Object LastWriteTime -Descending
+            $archivedBaselines.Count | Should -Be 1
+
+            $archivedBaselineObj = Get-Content -LiteralPath $archivedBaselines[0].FullName -Raw | ConvertFrom-Json
+            $archivedBaselineObj.metadata.deploymentId | Should -Be 'TEST-REFRESH-1'
+
+            $refreshedBaselineObj = Get-Content -LiteralPath $script:baseline -Raw | ConvertFrom-Json
+            $refreshedBaselineObj.metadata.deploymentId | Should -Be 'TEST-REFRESH-2'
+            $refreshedBaselineObj.files | Should -Not -BeNullOrEmpty
+        }
+        finally {
+            Set-Content -LiteralPath $script:baseline -Value $originalBaselineContent -Encoding UTF8
+            Set-Content -LiteralPath (Join-Path $script:server 'web.config') -Value $originalServerWebConfig -Encoding UTF8
+        }
+    }
+
     AfterAll {
         if ($null -ne $script:testSample -and -not [string]::IsNullOrWhiteSpace($script:testSample) -and (Test-Path -LiteralPath $script:testSample)) {
             Remove-Item -LiteralPath $script:testSample -Recurse -Force -ErrorAction SilentlyContinue

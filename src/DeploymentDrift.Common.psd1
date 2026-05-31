@@ -3,7 +3,7 @@
     RootModule        = 'DeploymentDrift.Common.psm1'
 
     # Version number of this module.
-    ModuleVersion     = '0.1.0'
+    ModuleVersion     = '1.0.0'
 
     # ID used to uniquely identify this module
     GUID              = '6f8b3d7a-5b2a-4c9e-9c1f-2e7b4a1c2d3e'

@@ -118,6 +118,7 @@ function Print-Summary {
 $pw = 'powershell'
 $staging = Join-Path $env:TEMP 'BrainDriftDeployStaging'
 if (-not (Test-Path -LiteralPath $staging)) { New-Item -Path $staging -ItemType Directory -Force | Out-Null }
+$configPath = Join-Path $PSScriptRoot '..\..\config\deployment-drift.config.json'
 $resolvedIncoming = $IncomingPackagePath
 if (Test-Path -LiteralPath $IncomingPackagePath) {
     $resolvedIncoming = (Resolve-Path -LiteralPath $IncomingPackagePath).Path
@@ -174,7 +175,8 @@ try {
                 '-EnvironmentName', $EnvironmentName,
                 '-ServerName', $ServerName,
                 '-RootPath', $RootPath,
-                '-BaselinePath', $BaselinePath
+                '-BaselinePath', $BaselinePath,
+                '-ConfigPath', $configPath
             )
             & $pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot '..\..\scripts\New-DeploymentBaseline.ps1') @baselineArgs
             $be = $LASTEXITCODE
@@ -340,7 +342,7 @@ try {
         Write-Warning 'run-deploy:: -PromoteBaselineOnSuccess requested: refreshing baseline now.'
         Write-Log "run-deploy:: Invoking New-DeploymentBaseline.ps1 -RootPath $RootPath -BaselinePath $BaselinePath" 'Yellow'
         & $pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot '..\..\scripts\New-DeploymentBaseline.ps1') `
-            -ApplicationName $ApplicationName -DeploymentId $DeploymentId -EnvironmentName $EnvironmentName -ServerName $ServerName -RootPath $RootPath -BaselinePath $BaselinePath
+            -ApplicationName $ApplicationName -DeploymentId $DeploymentId -EnvironmentName $EnvironmentName -ServerName $ServerName -RootPath $RootPath -BaselinePath $BaselinePath -ConfigPath $configPath
         $baselineExit = $LASTEXITCODE
         $script:Summary.BaselineExit = $baselineExit
         if ($baselineExit -eq 0) {
