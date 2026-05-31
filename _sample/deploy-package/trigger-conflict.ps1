@@ -4,16 +4,16 @@ param(
     [string]$TemplatePath,
 
     [Parameter(Mandatory=$false)]
-    [string]$TargetPath,
+    [string]$RootPath,
 
     [Parameter(Mandatory=$false)]
     [string]$BaselinePath,
 
     [Parameter(Mandatory=$false)]
-    [string]$ReportsPath,
+    [string]$ReportPath,
 
     [Parameter(Mandatory=$false)]
-    [string]$IncomingPath,
+    [string]$IncomingPackagePath,
 
     [Parameter(Mandatory=$false)]
     [string]$ServerValue = 'SERVER_B',
@@ -33,17 +33,17 @@ Write-Host 'trigger-conflict:: START'
 if ([string]::IsNullOrWhiteSpace($TemplatePath)) {
     $TemplatePath = Join-Path $PSScriptRoot 'package-content'
 }
-if ([string]::IsNullOrWhiteSpace($TargetPath)) {
-    $TargetPath = Join-Path $env:TEMP 'BrainDriftDeployTarget'
+if ([string]::IsNullOrWhiteSpace($RootPath)) {
+    $RootPath = Join-Path $env:TEMP 'BrainDriftDeployTarget'
 }
 if ([string]::IsNullOrWhiteSpace($BaselinePath)) {
     $BaselinePath = Join-Path $env:TEMP 'bd-baseline.json'
 }
-if ([string]::IsNullOrWhiteSpace($ReportsPath)) {
-    $ReportsPath = Join-Path $env:TEMP 'BrainDriftReports'
+if ([string]::IsNullOrWhiteSpace($ReportPath)) {
+    $ReportPath = Join-Path $env:TEMP 'BrainDriftReports'
 }
-if ([string]::IsNullOrWhiteSpace($IncomingPath)) {
-    $IncomingPath = Join-Path $env:TEMP 'BrainDriftIncomingConflict'
+if ([string]::IsNullOrWhiteSpace($IncomingPackagePath)) {
+    $IncomingPackagePath = Join-Path $env:TEMP 'BrainDriftIncomingConflict'
 }
 
 $resolvedTemplatePath = (Resolve-Path -LiteralPath $TemplatePath).Path
@@ -51,36 +51,36 @@ if (-not (Test-Path -LiteralPath $resolvedTemplatePath -PathType Container)) {
     throw "Template path not found: $resolvedTemplatePath"
 }
 
-if (-not (Test-Path -LiteralPath $TargetPath -PathType Container)) {
-    New-Item -Path $TargetPath -ItemType Directory -Force | Out-Null
+if (-not (Test-Path -LiteralPath $RootPath -PathType Container)) {
+    New-Item -Path $RootPath -ItemType Directory -Force | Out-Null
 }
 
-$targetFiles = Get-ChildItem -Path $TargetPath -File -ErrorAction SilentlyContinue
+$targetFiles = Get-ChildItem -Path $RootPath -File -ErrorAction SilentlyContinue
 if ($null -eq $targetFiles -or $targetFiles.Count -eq 0) {
     Get-ChildItem -LiteralPath $resolvedTemplatePath -Force | ForEach-Object {
-        Copy-Item -LiteralPath $_.FullName -Destination $TargetPath -Recurse -Force
+        Copy-Item -LiteralPath $_.FullName -Destination $RootPath -Recurse -Force
     }
 }
 
 if (-not (Test-Path -LiteralPath $BaselinePath -PathType Leaf)) {
     Write-Host 'trigger-conflict:: Baseline missing; creating an initial baseline from the template content.'
     & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot '..\..\scripts\New-DeploymentBaseline.ps1') `
-        -ApplicationName 'Sample' -DeploymentId 'AUTO' -EnvironmentName 'PROD' -ServerName 'AUTO' -RootPath $TargetPath -BaselinePath $BaselinePath | Out-Null
+        -ApplicationName 'Sample' -DeploymentId 'AUTO' -EnvironmentName 'PROD' -ServerName 'AUTO' -RootPath $RootPath -BaselinePath $BaselinePath | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to create baseline. Exit code: $LASTEXITCODE"
     }
 }
 
-if (Test-Path -LiteralPath $IncomingPath) {
-    Remove-Item -LiteralPath $IncomingPath -Recurse -Force
+if (Test-Path -LiteralPath $IncomingPackagePath) {
+    Remove-Item -LiteralPath $IncomingPackagePath -Recurse -Force
 }
-New-Item -Path $IncomingPath -ItemType Directory -Force | Out-Null
+New-Item -Path $IncomingPackagePath -ItemType Directory -Force | Out-Null
 Get-ChildItem -LiteralPath $resolvedTemplatePath -Force | ForEach-Object {
-    Copy-Item -LiteralPath $_.FullName -Destination $IncomingPath -Recurse -Force
+    Copy-Item -LiteralPath $_.FullName -Destination $IncomingPackagePath -Recurse -Force
 }
 
-$targetWebConfig = Join-Path $TargetPath 'web.config'
-$incomingWebConfig = Join-Path $IncomingPath 'web.config'
+$targetWebConfig = Join-Path $RootPath 'web.config'
+$incomingWebConfig = Join-Path $IncomingPackagePath 'web.config'
 
 if (-not (Test-Path -LiteralPath $targetWebConfig -PathType Leaf)) {
     throw "Target web.config not found: $targetWebConfig"
@@ -89,12 +89,12 @@ if (-not (Test-Path -LiteralPath $incomingWebConfig -PathType Leaf)) {
     throw "Incoming web.config not found: $incomingWebConfig"
 }
 
+$runDeployPath = Join-Path $PSScriptRoot 'run-deploy.ps1'
 Set-Content -LiteralPath $targetWebConfig -Value $ServerValue -Encoding UTF8
 Set-Content -LiteralPath $incomingWebConfig -Value $PackageValue -Encoding UTF8
 
-$runDeployPath = Join-Path $PSScriptRoot 'run-deploy.ps1'
 & powershell -NoProfile -ExecutionPolicy Bypass -File $runDeployPath `
-    -IncomingPath $IncomingPath -TargetPath $TargetPath -BaselinePath $BaselinePath -ReportsPath $ReportsPath
+    -IncomingPackagePath $IncomingPackagePath -RootPath $RootPath -BaselinePath $BaselinePath -ReportPath $ReportPath
 $runDeployExit = $LASTEXITCODE
 
 $precheckReports = Join-Path (Join-Path $env:TEMP 'BrainDriftDeployStaging') 'precheck-reports'
@@ -115,14 +115,14 @@ if (-not $precheckObject.classification.hasConflict) {
 Write-Host "trigger-conflict:: Conflict confirmed. Report: $($precheckReport.FullName)"
 
 if (-not $KeepWorkingCopies.IsPresent) {
-    Remove-Item -LiteralPath $IncomingPath -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $IncomingPackagePath -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 Write-Output ([pscustomobject]@{
     Status = 'ConflictTriggered'
     ExitCode = $runDeployExit
-    TargetPath = $TargetPath
-    IncomingPath = $IncomingPath
+    RootPath = $RootPath
+    IncomingPackagePath = $IncomingPackagePath
     BaselinePath = $BaselinePath
     ReportPath = $precheckReport.FullName
 })

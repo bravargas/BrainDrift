@@ -313,9 +313,9 @@ The following flow is recommended for Harness-based deployments.
 3. If drift is detected, stop the deployment or pause for manual approval.
 4. Deploy the files only after the drift decision is made.
 5. Run smoke tests and any application validation steps.
-6. If the deployment succeeds, run `New-DeploymentBaseline.ps1` to create the new baseline.
+6. If the deployment succeeds, refresh the baseline so it represents the last successful deployment.
 
-This sequence ensures that the baseline always represents the last successful deployment, not the last attempted deployment.
+This sequence ensures that the baseline always represents the last successful deployment, not the last attempted deployment. In the sample `run-deploy.ps1`, this refresh happens automatically after a successful deployment.
 
 ### Conflict Demo
 
@@ -328,6 +328,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File _sample\deploy-package\trigg
 It changes the target and incoming package in a controlled way, runs the simulator, and verifies that the process stops before deployment when a conflict is detected.
 
 For production environments, a manual approval step in Harness is strongly recommended when drift is detected or when a deployment affects critical configuration files.
+
+If you are implementing the initial deployment bootstrap, allow the framework to continue when the baseline is missing, then create the baseline after the first successful deployment.
 
 ## Recommended Exit Codes
 

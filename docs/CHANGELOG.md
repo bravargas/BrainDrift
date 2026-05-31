@@ -11,3 +11,17 @@
 - Added a single-command conflict trigger helper for the sample deployment package.
 - Aligned `_sample/deploy-package/package-content/web.config` with `C:\Architect\2251_MU\Portal\Web.config`.
 - Defaulted `_sample/deploy-package/pack-nupkg.ps1` to the bundled `tools\nuget.exe`.
+ - [2026-05-30] Detected server drift during manual test: `Portal/Web.config` was modified on the server compared to the baseline (see report). Report: `C:\Users\Brainer\AppData\Local\Temp\BrainDriftReports\drift-report-20260530-211926.json`. Recommended action: investigar la modificación del `web.config` o restaurar desde el backup antes de desplegar.
+- Updated `_sample/deploy-package/run-deploy.ps1` behavior for missing baselines and baseline refresh:
+	- Default behavior now aborts the run (exit code 3) when the configured baseline file is missing. This prevents unsafe deployments when no trusted baseline exists.
+	- To allow bootstrap creation of a baseline, callers may pass `-CreateBaselineIfMissing`.
+	- To explicitly continue the deployment without a baseline (unsafe), callers may pass `-SkipBaselineCreation` or the alias `-ContinueWithoutBaseline`.
+	- Baseline refresh after a successful deployment is now opt-in and occurs only when `-PromoteBaselineOnSuccess` is supplied.
+- Removed `IgnoreDrift` from the drift-test and deployment orchestration scripts so `FailOnDrift` is the only switch that changes drift exit behavior.
+- Added a regression test that verifies server-side `web.config` drift returns exit code `1` when `-FailOnDrift` is enabled.
+- Updated `_sample/deploy-package/run-deploy.ps1` so `-FailOnDrift` blocks the bootstrap path when the baseline file is missing instead of auto-creating a baseline and continuing.
+- 2026-05-30: Renamed and standardized CLI parameter names across tools to the canonical `Test-DeploymentDrift.ps1` interface:
+	- `IncomingPackagePath`, `RootPath`, `BaselinePath`, `ReportPath` are the canonical parameter names used by `run-deploy.ps1` and sample package scripts.
+	- Removed backwards-compatibility aliases; all examples and orchestration use the new names.
+- 2026-05-30: Hardened `scripts\New-DeploymentBaseline.ps1` to normalize `IncludePatterns`/`ExcludePatterns` to arrays and ensure inventory results are array-wrapped so `fileCount` calculations do not fail on singleton results.
+- 2026-05-30: Updated sample scripts (`deploy.ps1`, `predeploy.ps1`, `trigger-conflict.ps1`) and docs to use the new parameter names, and updated `docs/DeploymentDrift.Usage.md` examples accordingly.

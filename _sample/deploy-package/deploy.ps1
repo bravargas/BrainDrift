@@ -1,10 +1,10 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory=$true)]
-    [string]$IncomingPath,
+    [string]$IncomingPackagePath,
 
     [Parameter(Mandatory=$true)]
-    [string]$TargetPath,
+    [string]$RootPath,
 
     [Parameter(Mandatory=$false)]
     [string]$StagingPath,
@@ -61,20 +61,19 @@ function Copy-DeploymentFile {
     }
 }
 
-if (-not (Test-Path -LiteralPath $IncomingPath -PathType Container)) {
-    Write-Host "deploy:: ERROR: Incoming path not found: $IncomingPath"
+    if (-not (Test-Path -LiteralPath $IncomingPackagePath -PathType Container)) {
+    Write-Host "deploy:: ERROR: Incoming path not found: $IncomingPackagePath"
     exit 2
 }
-
-if (-not (Test-Path -LiteralPath $TargetPath -PathType Container)) {
-    Write-Host "deploy:: Target path does not exist, creating: $TargetPath"
-    New-Item -Path $TargetPath -ItemType Directory -Force | Out-Null
+if (-not (Test-Path -LiteralPath $RootPath -PathType Container)) {
+    Write-Host "deploy:: Target path does not exist, creating: $RootPath"
+    New-Item -Path $RootPath -ItemType Directory -Force | Out-Null
 }
 
 if (-not $Apply.IsPresent) {
-    Write-Host "deploy:: Dry run - files that would be copied from ${IncomingPath} to ${TargetPath}:"
-    Get-ChildItem -Path $IncomingPath -Recurse -File | ForEach-Object {
-        $rel = $_.FullName.Substring($IncomingPath.Length).TrimStart('\', '/')
+    Write-Host "deploy:: Dry run - files that would be copied from ${IncomingPackagePath} to ${RootPath}:"
+    Get-ChildItem -Path $IncomingPackagePath -Recurse -File | ForEach-Object {
+        $rel = $_.FullName.Substring($IncomingPackagePath.Length).TrimStart('\', '/')
         $targetRel = Get-TargetRelativePath -RelativePath $rel
         Write-Host "  $rel -> $targetRel"
     }
@@ -84,8 +83,8 @@ if (-not $Apply.IsPresent) {
 
 try {
     Write-Host "deploy:: Applying deployment (copying files)"
-    Get-ChildItem -Path $IncomingPath -Recurse -File | ForEach-Object {
-        $result = Copy-DeploymentFile -SourceFile $_.FullName -SourceRoot $IncomingPath -TargetRoot $TargetPath
+    Get-ChildItem -Path $IncomingPackagePath -Recurse -File | ForEach-Object {
+        $result = Copy-DeploymentFile -SourceFile $_.FullName -SourceRoot $IncomingPackagePath -TargetRoot $RootPath
         Write-Host "deploy:: Copied $($result.RelativePath) -> $($result.TargetPath)"
     }
     Write-Host "deploy:: Deployment completed successfully"

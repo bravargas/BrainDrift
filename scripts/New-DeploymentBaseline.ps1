@@ -58,7 +58,15 @@ try {
     Write-Host "$($MyInvocation.MyCommand.Name):: ExcludePatterns : $($ExcludePatterns -join ', ')"
     Write-Host "$($MyInvocation.MyCommand.Name):: HashAlgorithm   : $HashAlgorithm"
 
+    # Ensure patterns are arrays (avoid null/singleton issues)
+    if ($null -eq $IncludePatterns) { $IncludePatterns = @() }
+    elseif (-not ($IncludePatterns -is [System.Array])) { $IncludePatterns = @($IncludePatterns) }
+    if ($null -eq $ExcludePatterns) { $ExcludePatterns = @() }
+    elseif (-not ($ExcludePatterns -is [System.Array])) { $ExcludePatterns = @($ExcludePatterns) }
+
     $inventory = Get-FileInventory -RootPath $RootPath -IncludePatterns $IncludePatterns -ExcludePatterns $ExcludePatterns -HashAlgorithm $HashAlgorithm
+    # Force inventory to an array to ensure .Count property exists even for single item results
+    $inventory = @($inventory)
 
     $createdAtUtc = [System.DateTime]::UtcNow.ToString('o')
     $createdBy = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
@@ -89,7 +97,7 @@ try {
         environmentName = $EnvironmentName
         serverName = $ServerName
         rootPath = $RootPath
-        fileCount = $inventory.Count
+        fileCount = ($inventory | Measure-Object).Count
         hashAlgorithm = $HashAlgorithm
         createdAtUtc = $createdAtUtc
         createdBy = $createdBy

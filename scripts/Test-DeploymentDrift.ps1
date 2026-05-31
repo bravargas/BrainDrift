@@ -22,6 +22,16 @@ param(
     [switch]$FailOnDrift,
 
     [Parameter(Mandatory = $false)]
+    [switch]$SkipBaselineCreation,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$ContinueWithoutBaseline,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$CreateBaselineIfMissing,
+
+
+    [Parameter(Mandatory = $false)]
     [string[]]$IncludePatterns,
 
     [Parameter(Mandatory = $false)]
@@ -34,6 +44,9 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+# Shell executable used for invoking helper scripts when needed
+$pw = 'powershell'
 
 Write-Host "$($MyInvocation.MyCommand.Name):: START"
 
@@ -58,56 +71,80 @@ try {
     Write-Host "$($MyInvocation.MyCommand.Name):: IncomingPackagePath : $IncomingPackagePath"
     Write-Host "$($MyInvocation.MyCommand.Name):: ReportPath          : $ReportPath"
     Write-Host "$($MyInvocation.MyCommand.Name):: FailOnDrift         : $FailOnDrift"
+    Write-Host "$($MyInvocation.MyCommand.Name):: SkipBaselineCreation : $SkipBaselineCreation"
+    Write-Host "$($MyInvocation.MyCommand.Name):: ContinueWithoutBaseline : $ContinueWithoutBaseline"
+    Write-Host "$($MyInvocation.MyCommand.Name):: CreateBaselineIfMissing : $CreateBaselineIfMissing"
     Write-Host "$($MyInvocation.MyCommand.Name):: IncludePatterns     : $($IncludePatterns -join ', ')"
     Write-Host "$($MyInvocation.MyCommand.Name):: ExcludePatterns     : $($ExcludePatterns -join ', ')"
     Write-Host "$($MyInvocation.MyCommand.Name):: HashAlgorithm       : $HashAlgorithm"
+    # support alternate flag name
+    if ($ContinueWithoutBaseline.IsPresent) { $SkipBaselineCreation = $true }
 
     if (-not (Test-Path -LiteralPath $BaselinePath -PathType Leaf)) {
-        $createdAtUtc = [System.DateTime]::UtcNow.ToString('o')
-        $createdBy = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-        if ([string]::IsNullOrWhiteSpace($createdBy)) {
-            $createdBy = $env:USERNAME
-        }
-
-        $result = [pscustomobject]@{
-            reportPath = $null
-            applicationName = $ApplicationName
-            environmentName = $EnvironmentName
-            rootPath = $RootPath
-            baselinePath = $BaselinePath
-            incomingPackagePath = $IncomingPackagePath
-            hashAlgorithm = $HashAlgorithm
-            hasDrift = $false
-            hasConflict = $false
-            baselineMissing = $true
-            summary = [pscustomobject]@{
-                baselineFileCount = 0
-                currentFileCount = 0
-                incomingFileCount = if ([string]::IsNullOrWhiteSpace($IncomingPackagePath)) { 0 } else { 0 }
-                modifiedCount = 0
-                missingCount = 0
-                newUnexpectedCount = 0
-                incomingChangeCount = 0
-                conflictCount = 0
-                unchangedCount = 0
+        if ($CreateBaselineIfMissing.IsPresent) {
+            Write-Host "$($MyInvocation.MyCommand.Name):: Baseline missing and CreateBaselineIfMissing requested. Attempting to create baseline..." -ForegroundColor Yellow
+            $deploymentId = ('AUTO-{0}' -f ([System.DateTime]::UtcNow.ToString('yyyyMMddHHmmss')))
+            $baselineArgs = @(
+                '-ApplicationName', $ApplicationName,
+                '-DeploymentId', $deploymentId,
+                '-EnvironmentName', $EnvironmentName,
+                '-ServerName', $env:COMPUTERNAME,
+                '-RootPath', $RootPath,
+                '-BaselinePath', $BaselinePath
+            )
+            & $pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'New-DeploymentBaseline.ps1') @baselineArgs
+            $be = $LASTEXITCODE
+            if ($be -ne 0) {
+                Write-Host "$($MyInvocation.MyCommand.Name):: Failed to create baseline (exit $be). Returning code 3." -ForegroundColor Red
+                exit 3
             }
-            files = @()
-            recommendedAction = 'Baseline file is missing. Create an initial baseline from a trusted, validated server state before enabling drift detection.'
-            metadata = [pscustomobject]@{
+            Write-Host "$($MyInvocation.MyCommand.Name):: Baseline created successfully, continuing." -ForegroundColor Green
+        }
+        else {
+            $createdAtUtc = [System.DateTime]::UtcNow.ToString('o')
+            $createdBy = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+            if ([string]::IsNullOrWhiteSpace($createdBy)) { $createdBy = $env:USERNAME }
+
+            $result = [pscustomobject]@{
+                reportPath = $null
                 applicationName = $ApplicationName
                 environmentName = $EnvironmentName
                 rootPath = $RootPath
                 baselinePath = $BaselinePath
                 incomingPackagePath = $IncomingPackagePath
-                generatedAtUtc = $createdAtUtc
-                generatedBy = $createdBy
                 hashAlgorithm = $HashAlgorithm
+                hasDrift = $false
+                hasConflict = $false
+                baselineMissing = $true
+                summary = [pscustomobject]@{
+                    baselineFileCount = 0
+                    currentFileCount = 0
+                    incomingFileCount = if ([string]::IsNullOrWhiteSpace($IncomingPackagePath)) { 0 } else { 0 }
+                    modifiedCount = 0
+                    missingCount = 0
+                    newUnexpectedCount = 0
+                    incomingChangeCount = 0
+                    conflictCount = 0
+                    unchangedCount = 0
+                }
+                files = @()
+                recommendedAction = 'Baseline file is missing. Create an initial baseline from a trusted, validated server state before enabling drift detection.'
+                metadata = [pscustomobject]@{
+                    applicationName = $ApplicationName
+                    environmentName = $EnvironmentName
+                    rootPath = $RootPath
+                    baselinePath = $BaselinePath
+                    incomingPackagePath = $IncomingPackagePath
+                    generatedAtUtc = $createdAtUtc
+                    generatedBy = $createdBy
+                    hashAlgorithm = $HashAlgorithm
+                }
             }
-        }
 
-        Write-Host "$($MyInvocation.MyCommand.Name):: Baseline file is missing. Return code 3 indicates initialization is required."
-        Write-Output $result
-        exit 3
+            Write-Host "$($MyInvocation.MyCommand.Name):: Baseline file is missing. Return code 3 indicates initialization is required."
+            Write-Output $result
+            exit 3
+        }
     }
 
     $baselineDocument = Read-JsonFile -Path $BaselinePath
@@ -175,9 +212,54 @@ try {
     Write-Host "$($MyInvocation.MyCommand.Name):: Result : Drift check completed"
     Write-Output $result
 
-    if ($FailOnDrift.IsPresent -and $comparison.hasDrift) {
-        Write-Host "$($MyInvocation.MyCommand.Name):: Drift detected and FailOnDrift is enabled. Returning exit code 1."
+    # If drift or conflict detected, print a clear, prominent message including machine name and report path
+
+    if ($comparison.hasDrift -or $comparison.hasConflict) {
+        $machine = $env:COMPUTERNAME
+        $recAction = $null
+        try { $recAction = $report.recommendedAction } catch { $recAction = '' }
+
+        # Strong, visible messages (use red for visibility)
+        if ($comparison.hasConflict) {
+            Write-Host "$($MyInvocation.MyCommand.Name):: DRIFT/CONFLICT DETECTED ON MACHINE: $machine" -ForegroundColor Red
+            Write-Host "$($MyInvocation.MyCommand.Name):: REPORT PATH: $reportTargetPath" -ForegroundColor Red
+            if (-not [string]::IsNullOrWhiteSpace($recAction)) {
+                Write-Host "$($MyInvocation.MyCommand.Name):: ACTION: $recAction" -ForegroundColor Red
+            }
+            else {
+                Write-Host "$($MyInvocation.MyCommand.Name):: ACTION: Conflict detected - manual intervention required. See report for details." -ForegroundColor Red
+            }
+        }
+        else {
+            Write-Host "$($MyInvocation.MyCommand.Name):: DRIFT DETECTED ON MACHINE: $machine" -ForegroundColor Red
+            Write-Host "$($MyInvocation.MyCommand.Name):: REPORT PATH: $reportTargetPath" -ForegroundColor Red
+            if (-not [string]::IsNullOrWhiteSpace($recAction)) {
+                Write-Host "$($MyInvocation.MyCommand.Name):: ACTION: $recAction" -ForegroundColor Red
+            }
+            else {
+                Write-Host "$($MyInvocation.MyCommand.Name):: ACTION: Drift detected - review recommended changes in the report." -ForegroundColor Red
+            }
+        }
+
+        # Compact one-line summary for easy grepping/parsing (no decorative chars)
+        $oneLine = "DRIFT_SUMMARY: hasDrift=$($comparison.hasDrift), hasConflict=$($comparison.hasConflict), machine=$machine, report=$reportTargetPath, action=$recAction"
+        Write-Host $oneLine -ForegroundColor Red
+    }
+
+    # Decide exit codes: conflicts should be treated as failures; drift fails only when FailOnDrift is present.
+    if ($comparison.hasConflict) {
+        Write-Host "$($MyInvocation.MyCommand.Name):: Conflict detected. Returning exit code 1." -ForegroundColor Red
         exit 1
+    }
+
+    if ($comparison.hasDrift) {
+        if ($FailOnDrift.IsPresent) {
+            Write-Host "$($MyInvocation.MyCommand.Name):: Drift detected and FailOnDrift is enabled. Returning exit code 1."
+            exit 1
+        }
+        else {
+            Write-Host "$($MyInvocation.MyCommand.Name):: Drift detected but FailOnDrift is not enabled. Returning exit code 0." -ForegroundColor Yellow
+        }
     }
 
     exit 0

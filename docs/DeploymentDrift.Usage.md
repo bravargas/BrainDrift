@@ -6,10 +6,10 @@
 powershell.exe -ExecutionPolicy Bypass -File .\scripts\Test-DeploymentDrift.ps1 `
   -ApplicationName "MyApp" `
   -EnvironmentName "QA" `
-  -RootPath "C:\inetpub\MyApp" `
-  -BaselinePath "C:\Deployments\MyApp\baseline\last-successful-deployment.json" `
-  -IncomingPackagePath "C:\Deployments\MyApp\incoming" `
-  -ReportPath "C:\Deployments\MyApp\reports" `
+  -RootPath "$env:TEMP\BrainDriftDeployTarget" `
+  -BaselinePath "$env:TEMP\bd-baseline.json" `
+  -IncomingPackagePath ".\_sample\deploy-package\packages\mybank_2251.1.0.0.nupkg" `
+  -ReportPath "$env:TEMP\BrainDriftReports" `
   -FailOnDrift `
   -IncludePatterns "web.config","*.config","*.json","*.xml","*.dll" `
   -ExcludePatterns "logs*","temp*","App_Data\cache*"
@@ -23,8 +23,8 @@ powershell.exe -ExecutionPolicy Bypass -File .\scripts\New-DeploymentBaseline.ps
   -DeploymentId "$env:HARNESS_EXECUTION_ID" `
   -EnvironmentName "QA" `
   -ServerName $env:COMPUTERNAME `
-  -RootPath "C:\inetpub\MyApp" `
-  -BaselinePath "C:\Deployments\MyApp\baseline\last-successful-deployment.json" `
+  -RootPath "$env:TEMP\BrainDriftDeployTarget" `
+  -BaselinePath "$env:TEMP\bd-baseline.json" `
   -IncludePatterns "web.config","*.config","*.json","*.xml","*.dll" `
   -ExcludePatterns "logs*","temp*","App_Data\cache*"
 ```
@@ -33,8 +33,8 @@ powershell.exe -ExecutionPolicy Bypass -File .\scripts\New-DeploymentBaseline.ps
 
 ```powershell
 powershell.exe -ExecutionPolicy Bypass -File .\scripts\Export-DeploymentFileManifest.ps1 `
-  -SourcePath "C:\Deployments\MyApp\incoming" `
-  -ManifestPath "C:\Deployments\MyApp\manifests\incoming-manifest.json" `
+  -SourcePath ".\_sample\deploy-package\packages\mybank_2251.1.0.0.nupkg" `
+  -ManifestPath "$env:TEMP\BrainDriftIncoming\incoming-manifest.json" `
   -IncludePatterns "web.config","*.config","*.json","*.xml","*.dll" `
   -ExcludePatterns "logs*","temp*","App_Data\cache*"
 ```
@@ -62,35 +62,93 @@ In the current implementation, a missing baseline returns exit code `3` and a cl
 
 ## Sample local deployment package (integration example)
 
-The repository includes a minimal, standalone example deployment package under `_sample\deploy-package`. It demonstrates how to keep deployment logic separate from BrainDrift while calling BrainDrift scripts for manifest generation, pre-deployment checks and post-deployment baseline promotion.
+The repository includes a minimal, standalone example deployment package under `_sample\deploy-package`. It demonstrates how to keep deployment logic separate from BrainDrift while calling BrainDrift scripts for manifest generation, pre-deployment checks and baseline creation.
 
 Files:
-- `_sample\deploy-package\predeploy.ps1` — prepares staging and exports an incoming manifest (calls `Export-DeploymentFileManifest.ps1`).
-- `_sample\deploy-package\deploy.ps1` — simple dry-run and apply copy of incoming files to a target path.
-- `_sample\deploy-package\run-deploy.ps1` — orchestration script: runs `predeploy.ps1`, runs `deploy.ps1` (apply), then calls `Test-DeploymentDrift.ps1` to validate the deployment; optionally promotes the deployed server state to a new baseline if requested.
-- `_sample\deploy-package\trigger-conflict.ps1` — creates a controlled target/incoming mismatch and verifies that `run-deploy.ps1` stops on the pre-deployment conflict gate.
 
 Usage example (copy package to the server or run from a CI agent):
 
 ```powershell
-# prepare variables
-$incoming = 'C:\temp\incoming-package'
-$target = 'C:\inetpub\MyApp'
-$baseline = 'C:\Deployments\MyApp\baseline\last-successful-deployment.json'
-$reports = 'C:\Deployments\MyApp\reports'
+# prepare variables (example using local test paths)
+$incoming = '.\\_sample\\deploy-package\\packages\\mybank_2251.1.0.0.nupkg'
+$target = "$env:TEMP\\BrainDriftDeployTarget"
+$baseline = "$env:TEMP\\bd-baseline.json"
+$reports = "$env:TEMP\\BrainDriftReports"
 
 # dry run
-powershell -NoProfile -ExecutionPolicy Bypass -File _sample\deploy-package\deploy.ps1 -IncomingPath $incoming -TargetPath $target
+powershell -NoProfile -ExecutionPolicy Bypass -File _sample\deploy-package\deploy.ps1 -IncomingPackagePath $incoming -RootPath $target
 
-# real run, orchestrated with BrainDrift check and optional baseline promotion
+# real run, orchestrated with BrainDrift drift gate and automatic baseline refresh
 powershell -NoProfile -ExecutionPolicy Bypass -File _sample\deploy-package\run-deploy.ps1 `
-  -IncomingPath $incoming -TargetPath $target -BaselinePath $baseline -ReportsPath $reports -PromoteBaselineOnSuccess
+  -IncomingPackagePath $incoming -RootPath $target -BaselinePath $baseline -ReportPath $reports
 ```
 
 Notes:
 - The example keeps BrainDrift scripts out of the deployment package internals; integration occurs by invoking BrainDrift's entry scripts from the deploy orchestration.
 - Customize `IncludePatterns` / `ExcludePatterns` and hash algorithm by editing the example scripts or calling the BrainDrift scripts directly from your pipeline.
-- The orchestration script treats a missing baseline as an initial deployment and will promote the current state to baseline if `-PromoteBaselineOnSuccess` is provided.
+- The orchestration script treats a missing baseline as deployment zero, logs a warning, and continues with `predeploy` and `deploy`.
+- If a baseline exists and drift is detected, `run-deploy.ps1` stops before `predeploy` and `deploy`.
+- After a successful deployment, `run-deploy.ps1` always refreshes the baseline so it represents the last successful deployment.
+
+Passing the `-FailOnDrift` option
+-------------------------------
+
+The `run-deploy.ps1` script accepts `-FailOnDrift` as a switch. Behaviour:
+
+- If you include the switch (`-FailOnDrift`) the orchestrator will abort the deployment when drift is detected during the pre-deployment gate.
+- If you omit the switch, the orchestrator will log a visible warning when drift is detected but will continue with `predeploy`/`deploy` and then refresh the baseline.
+
+Examples:
+
+```powershell
+# Abort on drift (switch present)
+.\_sample\deploy-package\run-deploy.ps1 -IncomingPackagePath $incoming -RootPath $target -BaselinePath $baseline -ReportPath $reports -ApplicationName 'mybank' -EnvironmentName 'prod' -FailOnDrift
+
+# Continue on drift (switch omitted)
+.\_sample\deploy-package\run-deploy.ps1 -IncomingPackagePath $incoming -RootPath $target -BaselinePath $baseline -ReportPath $reports -ApplicationName 'mybank' -EnvironmentName 'prod'
+```
+
+Integration notes:
+
+- When calling PowerShell from external wrappers or CI systems, be careful not to pass the literal string "True"/"False" for a switch parameter - that can cause a conversion error. The safest approaches are:
+  - Include the switch to enable it: `-FailOnDrift` (preferred), or
+  - Use PowerShell's explicit form when invoking from another process: `-FailOnDrift:$true` / `-FailOnDrift:$false` inside a `-Command "& { ... }"` call so the boolean literal is evaluated by PowerShell.
+
+This ensures the orchestrator behavior is explicit and avoids subtle integration bugs.
+
+Creating a baseline when missing
+--------------------------------
+
+The `run-deploy.ps1` script accepts a `-CreateBaselineIfMissing` switch to control behavior when the configured `BaselinePath` does not exist.
+
+- Default: if you do not bind the parameter, the orchestrator will NOT create a baseline automatically and will abort the run to avoid unsafe deployments.
+- To allow automatic baseline creation at bootstrap, explicitly pass the switch: `-CreateBaselineIfMissing`.
+ - To allow automatic baseline creation at bootstrap, explicitly pass the switch: `-CreateBaselineIfMissing`.
+ - To explicitly continue the deployment without a baseline (unsafe), pass `-SkipBaselineCreation` or the more explicit alias `-ContinueWithoutBaseline`.
+
+Examples:
+
+```powershell
+# Allow automatic baseline creation at bootstrap (safe - creates baseline if missing)
+.\_sample\deploy-package\run-deploy.ps1 -IncomingPackagePath $incoming -RootPath $target -BaselinePath $baseline -ReportPath $reports -CreateBaselineIfMissing
+
+# Explicitly continue without a baseline (unsafe - proceed even when baseline missing)
+.\_sample\deploy-package\run-deploy.ps1 -IncomingPackagePath $incoming -RootPath $target -BaselinePath $baseline -ReportPath $reports -ContinueWithoutBaseline
+
+# Refresh baseline only when requested after a successful deploy
+.\_sample\deploy-package\run-deploy.ps1 -IncomingPackagePath $incoming -RootPath $target -BaselinePath $baseline -ReportPath $reports -PromoteBaselineOnSuccess
+```
+  To explicitly disable automatic baseline creation from an external wrapper, pass `-CreateBaselineIfMissing:$false`.
+
+Examples:
+
+```powershell
+# Create baseline automatically when missing (default behavior)
+.\_sample\deploy-package\run-deploy.ps1 -IncomingPackagePath $incoming -RootPath $target -BaselinePath $baseline -ReportPath $reports
+
+# Do not create baseline if missing
+.\_sample\deploy-package\run-deploy.ps1 -IncomingPackagePath $incoming -RootPath $target -BaselinePath $baseline -ReportPath $reports -CreateBaselineIfMissing:$false
+```
 
 Conflict demo:
 

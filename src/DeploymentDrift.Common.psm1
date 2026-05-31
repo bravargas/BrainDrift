@@ -61,14 +61,26 @@ function Test-PathMatchesPattern {
         Write-Host "$($MyInvocation.MyCommand.Name):: Patterns : $($Patterns -join ', ')"
 
         $normalizedPath = $Path -replace '\\', '/'
+        $normalizedPath = $normalizedPath -replace '/+', '/'
         $isMatch = $false
 
-        foreach ($pattern in $Patterns) {
-            if ([string]::IsNullOrWhiteSpace($pattern)) {
-                continue
+        # Support patterns passed as a single comma-separated string or as an array
+        $expandedPatterns = New-Object System.Collections.Generic.List[string]
+        foreach ($p in $Patterns) {
+            if ([string]::IsNullOrWhiteSpace($p)) { continue }
+            if ($p -like '*,*') {
+                foreach ($part in ($p -split ',')) {
+                    if (-not [string]::IsNullOrWhiteSpace($part)) { $expandedPatterns.Add($part.Trim()) }
+                }
             }
+            else {
+                $expandedPatterns.Add($p)
+            }
+        }
 
+        foreach ($pattern in $expandedPatterns) {
             $normalizedPattern = $pattern -replace '\\', '/'
+            $normalizedPattern = $normalizedPattern -replace '/+', '/'
 
             if ($normalizedPath -like $normalizedPattern) {
                 $isMatch = $true

@@ -1,4 +1,4 @@
-# BrainDrift — Deployment Drift Detection (PowerShell)
+# BrainDrift - Deployment Drift Detection (PowerShell)
 
 BrainDrift compares three states:
 - A = last successful baseline
@@ -6,13 +6,13 @@ BrainDrift compares three states:
 - C = incoming package
 
 ## What’s included
-- `src/DeploymentDrift.Common.psm1` — shared helpers and comparison engine
-- `src/DeploymentDrift.Common.psd1` — module manifest
-- `scripts/New-DeploymentBaseline.ps1` — create a baseline from a trusted server
-- `scripts/Test-DeploymentDrift.ps1` — run the pre-deployment drift check
-- `scripts/Export-DeploymentFileManifest.ps1` — generate an incoming package manifest
-- `_sample/deploy-package/` — standalone deployment simulator and conflict demo
-- `tests/DeploymentDrift.Tests.ps1` — Pester integration tests
+- `src/DeploymentDrift.Common.psm1` - shared helpers and comparison engine
+- `src/DeploymentDrift.Common.psd1` - module manifest
+- `scripts/New-DeploymentBaseline.ps1` - create a baseline from a trusted server
+- `scripts/Test-DeploymentDrift.ps1` - run the pre-deployment drift check
+- `scripts/Export-DeploymentFileManifest.ps1` - generate an incoming package manifest
+- `_sample/deploy-package/` - standalone deployment simulator and conflict demo
+- `tests/DeploymentDrift.Tests.ps1` - Pester integration tests
 
 ## Quick start
 
@@ -34,10 +34,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\_sample\deploy-package\tri
 ```
 
 ## Exit codes
-- `0` — no drift
-- `1` — drift detected and `-FailOnDrift` is enabled
-- `2` — script error
-- `3` — baseline missing
+- `0` - no drift
+- `1` - drift detected and `-FailOnDrift` is enabled
+- `2` - script error
+- `3` - baseline missing
 
 ## Docs
 - [Usage guide](docs/DeploymentDrift.Usage.md)

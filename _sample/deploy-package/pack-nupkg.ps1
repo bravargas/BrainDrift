@@ -1,17 +1,31 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory=$false)]
-    [string]$NuGetExe = (Join-Path $PSScriptRoot 'tools\nuget.exe'),
+    [string]$NuGetExe = '',
 
     [Parameter(Mandatory=$false)]
-    [string]$Nuspec = (Join-Path $PSScriptRoot 'mybank_2251.nuspec'),
+    [string]$Nuspec = '',
 
     [Parameter(Mandatory=$false)]
-    [string]$OutDir = (Join-Path $PSScriptRoot 'packages')
+    [string]$OutDir = ''
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+# If the caller didn't provide a NuGetExe path, resolve a sensible default
+if ([string]::IsNullOrWhiteSpace($NuGetExe)) {
+    $scriptRoot = if ($PSScriptRoot -and -not [string]::IsNullOrWhiteSpace($PSScriptRoot)) { $PSScriptRoot } else { (Get-Location).Path }
+    $NuGetExe = Join-Path $scriptRoot 'tools\nuget.exe'
+}
+
+# Resolve defaults for Nuspec and OutDir if they were not provided
+if ([string]::IsNullOrWhiteSpace($Nuspec)) {
+    $Nuspec = Join-Path $scriptRoot 'mybank_2251.nuspec'
+}
+if ([string]::IsNullOrWhiteSpace($OutDir)) {
+    $OutDir = Join-Path $scriptRoot 'packages'
+}
 
 if (-not (Test-Path -LiteralPath $NuGetExe -PathType Leaf)) {
     throw "nuget.exe not found: $NuGetExe"

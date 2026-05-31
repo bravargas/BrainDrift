@@ -75,6 +75,71 @@ Describe 'DeploymentDrift Suite' {
         $reportObj.classification.hasDrift | Should -BeFalse
     }
 
+    It 'Fails when server drifts and FailOnDrift is enabled' {
+        if ($script:useRealServer) {
+            Write-Host 'Skipping server drift test when using a real server path to avoid modifying production files.'
+            return
+        }
+
+        Set-Content -LiteralPath (Join-Path $script:server 'web.config') -Value 'SERVER_DRIFTED' -Encoding UTF8
+
+        & $script:pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:scripts 'Test-DeploymentDrift.ps1') `
+            -ApplicationName 'Sample' -EnvironmentName 'TEST' -RootPath $script:server `
+            -BaselinePath $script:baseline -ReportPath $script:reports -FailOnDrift -IncludePatterns '*' | Out-Null
+
+        $LASTEXITCODE | Should -Be 1
+
+        $report = Get-ChildItem -Path $script:reports -Filter 'drift-report-*.json' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        Test-Path $report.FullName | Should -BeTrue
+        $reportObj = Get-Content -Path $report.FullName -Raw | ConvertFrom-Json
+        $reportObj.classification.hasDrift | Should -BeTrue
+        $reportObj.classification.hasConflict | Should -BeFalse
+    }
+
+    It 'Aborts run-deploy when baseline is missing and FailOnDrift is enabled' {
+        if ($script:useRealServer) {
+            Write-Host 'Skipping bootstrap test when using a real server path to avoid modifying production files.'
+            return
+        }
+
+        Remove-Item -LiteralPath $script:baseline -ErrorAction SilentlyContinue
+
+        & $script:pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:repoRoot '_sample\deploy-package\run-deploy.ps1') `
+            -IncomingPackagePath $script:incoming `
+            -RootPath $script:server `
+            -BaselinePath $script:baseline `
+            -ReportPath $script:reports `
+            -ApplicationName 'Sample' `
+            -EnvironmentName 'TEST' `
+            -FailOnDrift `
+            -CreateBaselineIfMissing `
+            -IncludePatterns '*' | Out-Null
+
+        $LASTEXITCODE | Should -Be 3
+        Test-Path -LiteralPath $script:baseline | Should -BeFalse
+    }
+
+    It 'Aborts run-deploy when baseline is missing by default (no auto-bootstrap)' {
+        if ($script:useRealServer) {
+            Write-Host 'Skipping bootstrap-default test when using a real server path.'
+            return
+        }
+
+        Remove-Item -LiteralPath $script:baseline -ErrorAction SilentlyContinue
+
+        & $script:pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:repoRoot '_sample\deploy-package\run-deploy.ps1') `
+            -IncomingPackagePath $script:incoming `
+            -RootPath $script:server `
+            -BaselinePath $script:baseline `
+            -ReportPath $script:reports `
+            -ApplicationName 'Sample' `
+            -EnvironmentName 'TEST' `
+            -IncludePatterns '*' | Out-Null
+
+        $LASTEXITCODE | Should -Be 3
+        Test-Path -LiteralPath $script:baseline | Should -BeFalse
+    }
+
     It 'Detects conflict when incoming package changes files' {
         if ($script:useRealServer) {
             Write-Host 'Skipping conflict test when using a real server path to avoid modifying production files.'
