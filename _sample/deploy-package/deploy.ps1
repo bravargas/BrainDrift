@@ -61,7 +61,7 @@ function Copy-DeploymentFile {
     }
 }
 
-    if (-not (Test-Path -LiteralPath $SourcePath -PathType Container)) {
+if (-not (Test-Path -LiteralPath $SourcePath -PathType Container)) {
     Write-Host "deploy:: ERROR: Source path not found: $SourcePath"
     exit 2
 }
@@ -70,7 +70,7 @@ if (-not (Test-Path -LiteralPath $RootPath -PathType Container)) {
     New-Item -Path $RootPath -ItemType Directory -Force | Out-Null
 }
 
-    if (-not $Apply.IsPresent) {
+if (-not $Apply.IsPresent) {
     Write-Host "deploy:: Dry run - files that would be copied from ${SourcePath} to ${RootPath}:"
     Get-ChildItem -Path $SourcePath -Recurse -File | ForEach-Object {
         $rel = $_.FullName.Substring($SourcePath.Length).TrimStart('\', '/')
@@ -81,7 +81,7 @@ if (-not (Test-Path -LiteralPath $RootPath -PathType Container)) {
     exit 0
 }
 
-    try {
+try {
     Write-Host "deploy:: Applying deployment (copying files)"
     Get-ChildItem -Path $SourcePath -Recurse -File | ForEach-Object {
         $result = Copy-DeploymentFile -SourceFile $_.FullName -SourceRoot $SourcePath -TargetRoot $RootPath

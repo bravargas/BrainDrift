@@ -12,7 +12,7 @@
     <tags>deployment drift sample</tags>
   </metadata>
   <files>
-    <file src="package-content\web.config" target="content" />
-    <file src="package-content\file1.dll" target="content" />
+    <file src="package-content\Portal\Web.config" target="content\Portal" />
+    <file src="package-content\Portal\hlm\mylibrary\bin\file1.dll" target="content\Portal\hlm\mylibrary\bin" />
   </files>
 </package>

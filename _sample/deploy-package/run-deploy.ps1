@@ -13,6 +13,9 @@ param(
     [string]$ReportPath = $null,
 
     [Parameter(Mandatory=$false)]
+    [string]$ConfigPath = $null,
+
+    [Parameter(Mandatory=$false)]
     [string]$ApplicationName = $null,
 
     [Parameter(Mandatory=$false)]
@@ -41,7 +44,7 @@ param(
 
     [Parameter(Mandatory=$false)]
     [ValidateSet('SHA1', 'SHA256', 'SHA384', 'SHA512', 'MD5')]
-    [string]$HashAlgorithm = 'SHA256'
+    [string]$HashAlgorithm = $null
 )
 
 Set-StrictMode -Version Latest
@@ -67,17 +70,65 @@ function Resolve-SampleDeployPackageDefaults {
         [string]$ApplicationName,
 
         [Parameter(Mandatory = $false)]
-        [string]$EnvironmentName
+        [string]$EnvironmentName,
+
+        [Parameter(Mandatory = $false)]
+        [string]$ConfigPath,
+
+        [Parameter(Mandatory = $false)]
+        [string[]]$IncludePatterns,
+
+        [Parameter(Mandatory = $false)]
+        [string[]]$ExcludePatterns,
+
+        [Parameter(Mandatory = $false)]
+        [string]$HashAlgorithm
     )
 
     $sampleRoot = Split-Path -Path $PSScriptRoot -Parent
-    $resolved = [pscustomobject]@{
-        IncomingPackagePath = $IncomingPackagePath
+    if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
+        $ConfigPath = Join-Path $PSScriptRoot '..\..\config\deployment-drift.config.json'
+    }
+
+    $moduleManifest = Join-Path $PSScriptRoot '..\..\src\DeploymentDrift.Common.psd1'
+    $modulePsm1 = Join-Path $PSScriptRoot '..\..\src\DeploymentDrift.Common.psm1'
+    if (Test-Path -LiteralPath $moduleManifest -PathType Leaf) {
+        Import-Module -Name $moduleManifest -Scope Local -Force -ErrorAction Stop
+    }
+    elseif (Test-Path -LiteralPath $modulePsm1 -PathType Leaf) {
+        Import-Module -Name $modulePsm1 -Scope Local -Force -ErrorAction Stop
+    }
+    else {
+        throw "DeploymentDrift module not found under src."
+    }
+
+    $configurationArgs = @{
+        ConfigPath = $ConfigPath
+        ApplicationName = $ApplicationName
+        EnvironmentName = $EnvironmentName
         RootPath = $RootPath
         BaselinePath = $BaselinePath
         ReportPath = $ReportPath
-        ApplicationName = $ApplicationName
-        EnvironmentName = $EnvironmentName
+        IncludePatterns = $IncludePatterns
+        ExcludePatterns = $ExcludePatterns
+    }
+    if (-not [string]::IsNullOrWhiteSpace($HashAlgorithm)) {
+        $configurationArgs.HashAlgorithm = $HashAlgorithm
+    }
+
+    $configuration = Resolve-DeploymentDriftConfiguration @configurationArgs
+
+    $resolved = [pscustomobject]@{
+        IncomingPackagePath = $IncomingPackagePath
+        RootPath = $configuration.RootPath
+        BaselinePath = $configuration.BaselinePath
+        ReportPath = $configuration.ReportPath
+        ConfigPath = $configuration.ConfigPath
+        ApplicationName = $configuration.ApplicationName
+        EnvironmentName = $configuration.EnvironmentName
+        IncludePatterns = @($configuration.IncludePatterns)
+        ExcludePatterns = @($configuration.ExcludePatterns)
+        HashAlgorithm = $configuration.HashAlgorithm
     }
 
     if ([string]::IsNullOrWhiteSpace($resolved.IncomingPackagePath)) { $resolved.IncomingPackagePath = Join-Path $PSScriptRoot 'packages\mybank_2251.1.0.0.nupkg' }
@@ -86,8 +137,46 @@ function Resolve-SampleDeployPackageDefaults {
     if ([string]::IsNullOrWhiteSpace($resolved.ReportPath)) { $resolved.ReportPath = Join-Path $sampleRoot 'reports' }
     if ([string]::IsNullOrWhiteSpace($resolved.ApplicationName)) { $resolved.ApplicationName = 'Sample' }
     if ([string]::IsNullOrWhiteSpace($resolved.EnvironmentName)) { $resolved.EnvironmentName = 'TEST' }
+    if ([string]::IsNullOrWhiteSpace($resolved.HashAlgorithm)) { $resolved.HashAlgorithm = 'SHA256' }
 
     return $resolved
+}
+
+function Get-BaselineFileName {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ApplicationName,
+
+        [Parameter(Mandatory = $false)]
+        [string]$EnvironmentName
+    )
+
+    $appSafePart = $ApplicationName -replace '[^A-Za-z0-9._-]', '_'
+    $envSafePart = if (-not [string]::IsNullOrWhiteSpace($EnvironmentName)) { $EnvironmentName -replace '[^A-Za-z0-9._-]', '_' } else { '' }
+    if ([string]::IsNullOrWhiteSpace($envSafePart)) {
+        return "{0}.baseline.json" -f $appSafePart
+    }
+
+    return "{0}.{1}.baseline.json" -f $appSafePart, $envSafePart
+}
+
+function Resolve-BaselineFilePath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$BaselinePath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ApplicationName,
+
+        [Parameter(Mandatory = $false)]
+        [string]$EnvironmentName
+    )
+
+    if ([System.IO.Path]::GetExtension($BaselinePath) -ieq '.json') {
+        return $BaselinePath
+    }
+
+    return Join-Path $BaselinePath (Get-BaselineFileName -ApplicationName $ApplicationName -EnvironmentName $EnvironmentName)
 }
 
 $defaults = Resolve-SampleDeployPackageDefaults `
@@ -96,14 +185,22 @@ $defaults = Resolve-SampleDeployPackageDefaults `
     -BaselinePath $BaselinePath `
     -ReportPath $ReportPath `
     -ApplicationName $ApplicationName `
-    -EnvironmentName $EnvironmentName
+    -EnvironmentName $EnvironmentName `
+    -ConfigPath $ConfigPath `
+    -IncludePatterns $IncludePatterns `
+    -ExcludePatterns $ExcludePatterns `
+    -HashAlgorithm $HashAlgorithm
 
 $IncomingPackagePath = $defaults.IncomingPackagePath
 $RootPath = $defaults.RootPath
 $BaselinePath = $defaults.BaselinePath
 $ReportPath = $defaults.ReportPath
+$ConfigPath = $defaults.ConfigPath
 $ApplicationName = $defaults.ApplicationName
 $EnvironmentName = $defaults.EnvironmentName
+$IncludePatterns = @($defaults.IncludePatterns)
+$ExcludePatterns = @($defaults.ExcludePatterns)
+$HashAlgorithm = $defaults.HashAlgorithm
 
 function Write-Log {
     param(
@@ -161,9 +258,10 @@ function Write-Summary {
 }
 
 $pw = 'powershell'
-$staging = Join-Path $env:TEMP 'BrainDriftDeployStaging'
+$stagingRoot = Join-Path $env:TEMP 'BrainDriftDeployStaging'
+if (-not (Test-Path -LiteralPath $stagingRoot)) { New-Item -Path $stagingRoot -ItemType Directory -Force | Out-Null }
+$staging = Join-Path $stagingRoot ([System.Guid]::NewGuid().ToString())
 if (-not (Test-Path -LiteralPath $staging)) { New-Item -Path $staging -ItemType Directory -Force | Out-Null }
-$configPath = Join-Path $PSScriptRoot '..\..\config\deployment-drift.config.json'
 $resolvedIncoming = $IncomingPackagePath
 if (Test-Path -LiteralPath $IncomingPackagePath) {
     $resolvedIncoming = (Resolve-Path -LiteralPath $IncomingPackagePath).Path
@@ -200,7 +298,8 @@ try {
         }
     }
 
-    $baselineExists = Test-Path -LiteralPath $BaselinePath -PathType Leaf
+    $baselineFilePath = Resolve-BaselineFilePath -BaselinePath $BaselinePath -ApplicationName $ApplicationName -EnvironmentName $EnvironmentName
+    $baselineExists = Test-Path -LiteralPath $baselineFilePath -PathType Leaf
     if (-not $baselineExists) {
         # If baseline is missing, fail-safe: abort unless caller explicitly allows bootstrap
         if ($FailOnDrift) {
@@ -221,7 +320,7 @@ try {
                 '-ServerName', $ServerName,
                 '-RootPath', $RootPath,
                 '-BaselinePath', $BaselinePath,
-                '-ConfigPath', $configPath
+                '-ConfigPath', $ConfigPath
             )
             & $pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot '..\..\scripts\New-DeploymentBaseline.ps1') @baselineArgs
             $be = $LASTEXITCODE
@@ -249,13 +348,20 @@ try {
         if (-not (Test-Path -LiteralPath $precheckReports)) {
             New-Item -Path $precheckReports -ItemType Directory -Force | Out-Null
         }
+        else {
+            Get-ChildItem -Path $precheckReports -Filter 'drift-report-*.json' -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath (Join-Path $precheckReports 'incoming-manifest.json') -Force -ErrorAction SilentlyContinue
+        }
+
+        Write-Log 'run-deploy:: Precheck compares baseline against current server only.' 'Yellow'
 
         $precheckArgs = @(
             '-ApplicationName', $ApplicationName,
             '-EnvironmentName', $EnvironmentName,
             '-RootPath', $RootPath,
             '-BaselinePath', $BaselinePath,
-            '-ReportPath', $precheckReports
+            '-ReportPath', $precheckReports,
+            '-ConfigPath', $ConfigPath
         )
 
         # Forward run-deploy switches to Test-DeploymentDrift.ps1 where appropriate
@@ -263,15 +369,6 @@ try {
 
         if ($CreateBaselineIfMissing) {
             $precheckArgs += '-CreateBaselineIfMissing'
-        }
-
-        if ($null -ne $IncludePatterns -and $IncludePatterns.Count -gt 0) {
-            $precheckArgs += '-IncludePatterns'
-            $precheckArgs += $IncludePatterns
-        }
-        if ($null -ne $ExcludePatterns -and $ExcludePatterns.Count -gt 0) {
-            $precheckArgs += '-ExcludePatterns'
-            $precheckArgs += $ExcludePatterns
         }
 
         if ($HashAlgorithm) { $precheckArgs += '-HashAlgorithm'; $precheckArgs += $HashAlgorithm }
@@ -350,17 +447,7 @@ try {
         }
     }
 
-    # 1) pre-deployment manifest export
-    Write-Stage 'run-deploy:: STEP: Pre-deployment manifest export (predeploy.ps1)' 'Blue'
-    Write-Log "run-deploy:: Invoking predeploy.ps1 -SourcePath $IncomingPackagePath -StagingPath $staging" 'Yellow'
-    $script:Summary.PredeployInvoked = $true
-    & $pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'predeploy.ps1') -SourcePath $IncomingPackagePath -StagingPath $staging
-    $predeployExit = $LASTEXITCODE
-    $script:Summary.PredeployExit = $predeployExit
-    Write-Log "run-deploy:: predeploy.ps1 exit code: $predeployExit" 'Yellow'
-    if ($predeployExit -ne 0) { Write-Log 'run-deploy:: pre-deployment step failed' 'Red'; Write-Summary; exit 2 }
-
-    # 2) deploy: apply files
+    # 1) deploy: apply files
     Write-Stage 'run-deploy:: STEP: Deploy - applying files (deploy.ps1)' 'Blue'
     Write-Log "run-deploy:: Invoking deploy.ps1 -SourcePath $IncomingPackagePath -RootPath $RootPath -Apply" 'Yellow'
     $script:Summary.DeployInvoked = $true
@@ -376,7 +463,7 @@ try {
         Write-Warning 'run-deploy:: -PromoteBaselineOnSuccess requested: refreshing baseline now.'
         Write-Log "run-deploy:: Invoking New-DeploymentBaseline.ps1 -RootPath $RootPath -BaselinePath $BaselinePath" 'Yellow'
         & $pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot '..\..\scripts\New-DeploymentBaseline.ps1') `
-            -ApplicationName $ApplicationName -DeploymentId $DeploymentId -EnvironmentName $EnvironmentName -ServerName $ServerName -RootPath $RootPath -BaselinePath $BaselinePath -ConfigPath $configPath
+            -ApplicationName $ApplicationName -DeploymentId $DeploymentId -EnvironmentName $EnvironmentName -ServerName $ServerName -RootPath $RootPath -BaselinePath $BaselinePath -ConfigPath $ConfigPath
         $baselineExit = $LASTEXITCODE
         $script:Summary.BaselineExit = $baselineExit
         if ($baselineExit -eq 0) {

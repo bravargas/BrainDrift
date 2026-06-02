@@ -1,0 +1,16 @@
+# Build/package output
+artifacts/
+
+# Local scratch files
+_tmp/
+_tmp*.ps1
+
+# Generated drift reports from sample runs
+_sample/reports/drift-report-*.json
+_sample/baseline/archive/
+
+# Generated test harness output
+_sample/testrun/
+
+# Accidental nested sample package output
+_sample/deploy-package/_sample/

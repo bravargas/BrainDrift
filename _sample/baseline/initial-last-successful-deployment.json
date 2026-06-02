@@ -4,26 +4,26 @@
                      "deploymentId":  "TEST",
                      "environmentName":  "TEST",
                      "serverName":  "LOCAL",
-                     "rootPath":  "d:\\users\\Brainer\\Documents\\Code\\BrainDrift\\_sample\\server",
-                     "createdAtUtc":  "2026-05-30T18:06:39.3371445Z",
+                     "rootPath":  "_sample\\server",
+                     "createdAtUtc":  "2026-06-02T12:59:52.3677395Z",
                      "createdBy":  "BRAINER-1244-1\\Brainer",
                      "hashAlgorithm":  "SHA256"
                  },
     "files":  [
                   {
-                      "relativePath":  "file1.dll",
-                      "fullPath":  "D:\\users\\Brainer\\Documents\\Code\\BrainDrift\\_sample\\server\\file1.dll",
-                      "hash":  "C97641DE36C553EDBFA5CEAF25BE977116A4F42031F6BFA0D617AA886BFDA55B",
-                      "fileSize":  5,
-                      "lastWriteTimeUtc":  "2026-05-30T17:22:19.3940968Z",
+                      "relativePath":  "Portal/hlm/mylibrary/bin/file1.dll",
+                      "fullPath":  "D:\\users\\Brainer\\Documents\\Code\\BrainDrift\\_sample\\server\\Portal\\hlm\\mylibrary\\bin\\file1.dll",
+                      "hash":  "84A4AE146F239D03D32A974939E4AAA2AA730CE00DA9BA9DDC3371C9315ED933",
+                      "fileSize":  32,
+                      "lastWriteTimeUtc":  "2026-05-31T01:43:58.0000000Z",
                       "hashAlgorithm":  "SHA256"
                   },
                   {
-                      "relativePath":  "web.config",
-                      "fullPath":  "D:\\users\\Brainer\\Documents\\Code\\BrainDrift\\_sample\\server\\web.config",
-                      "hash":  "9447E771036E6DC60B2C920423D8474033FE50F837360802AC7326343170F5B9",
-                      "fileSize":  23,
-                      "lastWriteTimeUtc":  "2026-05-30T18:06:04.6084379Z",
+                      "relativePath":  "Portal/Web.config",
+                      "fullPath":  "D:\\users\\Brainer\\Documents\\Code\\BrainDrift\\_sample\\server\\Portal\\Web.config",
+                      "hash":  "20AC285E0B552A337559D010B3DBBEF042B7F71B9BBC5944507AA78BC8D62A1E",
+                      "fileSize":  2654,
+                      "lastWriteTimeUtc":  "2026-05-31T04:45:54.0000000Z",
                       "hashAlgorithm":  "SHA256"
                   }
               ]

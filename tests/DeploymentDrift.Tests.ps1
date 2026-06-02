@@ -194,6 +194,44 @@ Describe 'DeploymentDrift Suite' {
         Test-Path -LiteralPath $script:baselineFile | Should -BeFalse
     }
 
+    It 'run-deploy loads omitted defaults from config' {
+        if ($script:useRealServer) {
+            Write-Host 'Skipping run-deploy config default test when using a real server path.'
+            return
+        }
+
+        $configRunRoot = Join-Path $script:testSample 'config-run'
+        $configRoot = Join-Path $configRunRoot 'server'
+        $configBaseline = Join-Path $configRunRoot 'baseline'
+        $configReports = Join-Path $configRunRoot 'reports'
+        $configPath = Join-Path $configRunRoot 'deployment-drift.config.json'
+
+        New-Item -ItemType Directory -Path $configRoot -Force | Out-Null
+        New-Item -ItemType Directory -Path $configBaseline -Force | Out-Null
+        New-Item -ItemType Directory -Path $configReports -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $configRoot 'web.config') -Value 'CONFIG_ROOT' -Encoding UTF8
+
+        $configObject = [ordered]@{
+            ApplicationName = 'ConfigSample'
+            EnvironmentName = 'CFG'
+            RootPath = $configRoot
+            BaselinePath = $configBaseline
+            ReportPath = $configReports
+            IncludePatterns = @('*')
+            ExcludePatterns = @()
+            HashAlgorithm = 'SHA256'
+        }
+        Set-Content -LiteralPath $configPath -Value ($configObject | ConvertTo-Json -Depth 10) -Encoding UTF8
+
+        & $script:pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:repoRoot '_sample\deploy-package\run-deploy.ps1') `
+            -ConfigPath $configPath `
+            -IncomingPackagePath $script:incoming `
+            -FailOnDrift | Out-Null
+
+        $LASTEXITCODE | Should -Be 3
+        Test-Path -LiteralPath (Join-Path $configBaseline 'ConfigSample.CFG.baseline.json') | Should -BeFalse
+    }
+
     It 'Detects conflict when incoming package changes files' {
         if ($script:useRealServer) {
             Write-Host 'Skipping conflict test when using a real server path to avoid modifying production files.'

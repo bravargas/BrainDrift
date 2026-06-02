@@ -79,8 +79,8 @@ Get-ChildItem -LiteralPath $resolvedTemplatePath -Force | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $SourcePath -Recurse -Force
 }
 
-$targetWebConfig = Join-Path $RootPath 'web.config'
-$incomingWebConfig = Join-Path $SourcePath 'web.config'
+$targetWebConfig = Join-Path $RootPath 'Portal\Web.config'
+$incomingWebConfig = Join-Path $SourcePath 'Portal\Web.config'
 
 if (-not (Test-Path -LiteralPath $targetWebConfig -PathType Leaf)) {
     throw "Target web.config not found: $targetWebConfig"
@@ -97,10 +97,10 @@ Set-Content -LiteralPath $incomingWebConfig -Value $PackageValue -Encoding UTF8
     -IncomingPackagePath $SourcePath -RootPath $RootPath -BaselinePath $BaselinePath -ReportPath $ReportPath
 $runDeployExit = $LASTEXITCODE
 
-$precheckReports = Join-Path (Join-Path $env:TEMP 'BrainDriftDeployStaging') 'precheck-reports'
+$precheckReports = Join-Path $env:TEMP 'BrainDriftDeployStaging'
 $precheckReport = $null
 if (Test-Path -LiteralPath $precheckReports) {
-    $precheckReport = Get-ChildItem -Path $precheckReports -Filter 'drift-report-*.json' -File | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    $precheckReport = Get-ChildItem -Path $precheckReports -Filter 'drift-report-*.json' -File -Recurse | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 }
 
 if ($null -eq $precheckReport) {
@@ -115,7 +115,7 @@ if (-not $precheckObject.classification.hasConflict) {
 Write-Host "trigger-conflict:: Conflict confirmed. Report: $($precheckReport.FullName)"
 
 if (-not $KeepWorkingCopies.IsPresent) {
-    Remove-Item -LiteralPath $IncomingPackagePath -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $SourcePath -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 Write-Output ([pscustomobject]@{
