@@ -6,17 +6,14 @@ Windows Server deployments often combine automated delivery from GitHub Actions,
 
 The core problem is not whether the incoming deployment package differs from the current server state. Of course it does, because a later release is expected to contain official changes. The real question is whether the server has drifted away from the last successful official deployment baseline.
 
-The correct solution is to compare three versions:
+The default deployment gate compares two versions:
 
 - A = the last successful official deployment baseline.
 - B = the current server state.
-- C = the incoming deployment package.
 
-If B differs from A, then the server was modified after the last successful deployment. That is drift. If C also differs from A, that is normal for an updated release. The process must detect both conditions at the same time so it can identify a potential conflict before the new package overwrites server-side changes.
+If B differs from A, then the server was modified after the last successful deployment. That is drift. The incoming package is not part of the default gate because deployment packages often have a different internal layout from the target server and normally contain legitimate release changes.
 
 This repository implements that model with PowerShell scripts that can be run manually, scheduled, or called from Harness as part of a deployment pipeline.
-
-For a runnable example of the conflict gate in action, see the sample helper at `_sample\deploy-package\trigger-conflict.ps1`. It creates a controlled mismatch between the target server and the incoming package, then confirms that the pre-deployment gate blocks deployment when `classification.hasConflict` is set.
 
 ## Problem Statement
 
@@ -43,24 +40,21 @@ It must not answer this incorrect question:
 
 That second check is too shallow. It would treat normal release changes as drift and would not distinguish between a legitimate new version and an unauthorized manual edit.
 
-## Core Concept: Three-Way Comparison
+## Core Concept: Baseline-To-Server Comparison
 
-The drift detection process uses three file states.
+The default drift detection process uses two file states.
 
 - `LastDeployedBaseline` captures the hash and metadata of the file that was last known to be successfully deployed.
 - `CurrentServerState` captures the actual file currently present on the server before the new deployment starts.
-- `IncomingPackageState` captures the file from the new release package that is about to be deployed.
 
-The baseline is the control point. The current server file is compared against it first. The incoming package is compared against it as well, but only to classify whether the upcoming deployment is introducing a change or colliding with an existing manual edit.
+The baseline is the control point. The current server file is compared against it before deployment starts.
 
 | Comparison | Meaning |
 |---|---|
 | `CurrentServer == LastDeployed` | No server-side drift |
 | `CurrentServer != LastDeployed` | Server-side drift detected |
-| `IncomingPackage != LastDeployed` | Official deployment contains changes |
-| `CurrentServer != LastDeployed` and `IncomingPackage != LastDeployed` | Potential conflict |
 
-The important point is that a change in the incoming package is not a problem by itself. The process only flags a conflict when the server has already drifted away from the baseline and the new deployment also changes the same file.
+The important point is that a change in the incoming package is not drift by itself. BrainDrift's default orchestration only asks whether the current server still matches the last trusted baseline.
 
 ## Why a Simple Hash Comparison Against GitHub Is Not Enough
 
@@ -104,10 +98,9 @@ The baseline should only be updated after the deployment has completed successfu
 
 1. Load the previous baseline.
 2. Calculate hashes for the current server files.
-3. Optionally calculate hashes for the incoming package.
-4. Compare baseline versus current server state.
-5. Detect drift, missing files, new unexpected files, and conflicts.
-6. Generate a JSON report.
+3. Compare baseline versus current server state.
+4. Detect drift, missing files, and new unexpected files.
+5. Generate a JSON report.
 
 ### If Drift Exists
 
@@ -162,23 +155,20 @@ It:
 - Loads defaults from `config/deployment-drift.config.json` when values such as application name, environment name, root path, baseline path, report path, include/exclude patterns, or hash algorithm are not passed explicitly.
 - Loads the baseline JSON file.
 - Recalculates hashes from the current server files.
-- Optionally scans the incoming package.
 - Compares the baseline with the current server state.
 - Detects modified files, missing files, and unexpected files.
-- Performs three-way classification when the incoming package is supplied.
+- Can perform optional three-way classification only when `Test-DeploymentDrift.ps1` is called directly and an `incoming-manifest.json` already exists in the report folder.
 - Writes a JSON drift report.
 - Returns a useful object for pipeline consumption.
 
 ### `run-deploy.ps1`
-  "baselinePath": "C:\\Deployments\\MyApp\\baselines\\MyApp.QA.baseline.json",
 This sample orchestration script demonstrates how to combine the BrainDrift scripts with a deployment package.
 
 It:
 
 - Extracts a `.nupkg` when supplied.
-- Runs a pre-deployment drift check before copying files.
-- Stops immediately when the report flags a conflict.
-- Runs the deployment copy step only after the conflict gate passes.
+- Runs a pre-deployment baseline-vs-server drift check before copying files.
+- Runs the deployment copy step only after the drift decision is made.
 - Optionally promotes the deployed server state to a new baseline and archives the previous baseline version.
 
 ### `Export-DeploymentFileManifest.ps1`
@@ -248,7 +238,7 @@ The important elements are the metadata and the file inventory. The baseline is 
 
 ## Drift Report JSON Example
 
-The drift report records what changed, how it was classified, and what action is recommended. A simplified example for the conflict scenario looks like this:
+The drift report records what changed, how it was classified, and what action is recommended. A simplified baseline-vs-server drift example looks like this:
 
 ```json
 {
@@ -257,7 +247,6 @@ The drift report records what changed, how it was classified, and what action is
     "environmentName": "QA",
     "rootPath": "C:\\inetpub\\MyApp",
     "baselinePath": "C:\\Deployments\\MyApp\\baselines\\MyApp.baseline.json",
-    "incomingPackagePath": "C:\\Deployments\\MyApp\\incoming",
     "generatedAtUtc": "2026-05-30T17:30:00Z",
     "generatedBy": "DOMAIN\\DeployUser",
     "hashAlgorithm": "SHA256"
@@ -265,54 +254,41 @@ The drift report records what changed, how it was classified, and what action is
   "summary": {
     "baselineFileCount": 2,
     "currentFileCount": 2,
-    "incomingFileCount": 2,
+    "incomingFileCount": 0,
     "modifiedCount": 1,
     "missingCount": 0,
     "newUnexpectedCount": 0,
-    "incomingChangeCount": 2,
-    "conflictCount": 1,
+    "incomingChangeCount": 0,
+    "conflictCount": 0,
     "unchangedCount": 0
   },
   "classification": {
     "hasDrift": true,
-    "hasConflict": true,
-    "recommendedAction": "Stop deployment and review conflicting files."
+    "hasConflict": false,
+    "recommendedAction": "Investigate drift before deploying."
   },
   "files": [
     {
       "relativePath": "web.config",
       "baselineHash": "AAA",
       "currentHash": "XXX",
-      "incomingHash": "CCC",
+      "incomingHash": null,
       "isMissing": false,
       "isNewUnexpected": false,
       "isModified": true,
-      "isConflict": true,
-      "classification": "PotentialConflict",
-      "recommendedAction": "Stop deployment and review the conflicting file."
-    },
-    {
-      "relativePath": "file1.dll",
-      "baselineHash": "BBB",
-      "currentHash": "BBB",
-      "incomingHash": "DDD",
-      "isMissing": false,
-      "isNewUnexpected": false,
-      "isModified": false,
       "isConflict": false,
-      "classification": "IncomingChangeOnly",
-      "recommendedAction": "Proceed with deployment."
+      "classification": "ModifiedOnCurrentServer",
+      "recommendedAction": "Review the server-side change before deploying."
     }
   ],
-  "recommendedAction": "Stop deployment and review conflicting files."
+  "recommendedAction": "Investigate drift before deploying."
 }
 ```
 
 This example shows the intended behavior clearly:
 
 - `web.config` was changed on the server after the last successful deployment.
-- `web.config` also changed in the incoming package.
-- `file1.dll` changed only in the incoming package.
+- The deployment gate does not need to inspect the incoming package to detect that drift.
 
 ## Recommended Harness Integration
 
@@ -325,17 +301,7 @@ The following flow is recommended for Harness-based deployments.
 5. Run smoke tests and any application validation steps.
 6. If the deployment succeeds, refresh the baseline so it represents the last successful deployment.
 
-This sequence ensures that the baseline always represents the last successful deployment, not the last attempted deployment. In the sample `run-deploy.ps1`, this refresh happens automatically after a successful deployment.
-
-### Conflict Demo
-
-The sample helper below shows the intended pre-deployment behavior without requiring a real deployment pipeline:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File _sample\deploy-package\trigger-conflict.ps1
-```
-
-It changes the target and incoming package in a controlled way, runs the simulator, and verifies that the process stops before deployment when a conflict is detected.
+This sequence ensures that the baseline always represents the last successful deployment, not the last attempted deployment. In the sample `run-deploy.ps1`, baseline refresh is opt-in with `-PromoteBaselineOnSuccess`.
 
 For production environments, a manual approval step in Harness is strongly recommended when drift is detected or when a deployment affects critical configuration files.
 
@@ -404,9 +370,9 @@ Use the following scenario as the expected operational outcome.
 
 ### Expected result
 
-- `web.config`: server-side drift detected and the incoming package also changed the file. This is a potential conflict.
-- `file1.dll`: no server-side drift. The incoming package changes the file. This is normal.
-- Recommended action: stop deployment and review `web.config`.
+- `web.config`: server-side drift detected.
+- `file1.dll`: no server-side drift.
+- Recommended action: stop deployment and review `web.config` before deploying.
 
 This is the precise reason the process uses the A/B/C model. It separates ordinary release changes from unauthorized server-side edits.
 

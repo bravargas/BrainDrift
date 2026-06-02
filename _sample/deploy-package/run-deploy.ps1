@@ -239,8 +239,6 @@ $script:Summary = [ordered]@{
     PrecheckExit = ''
     PrecheckResult = ''
     PrecheckReport = ''
-    PredeployExit = ''
-    PredeployInvoked = $false
     DeployExit = ''
     DeployInvoked = $false
     BaselineExit = ''
@@ -342,7 +340,7 @@ try {
         }
     }
     else {
-        Write-Warning 'run-deploy:: Baseline exists. Running pre-deployment drift gate; any drift or conflict will stop predeploy/deploy.'
+        Write-Warning 'run-deploy:: Baseline exists. Running pre-deployment drift gate; drift can stop deploy when FailOnDrift is present.'
 
         $precheckReports = Join-Path $staging 'precheck-reports'
         if (-not (Test-Path -LiteralPath $precheckReports)) {
@@ -350,7 +348,6 @@ try {
         }
         else {
             Get-ChildItem -Path $precheckReports -Filter 'drift-report-*.json' -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath (Join-Path $precheckReports 'incoming-manifest.json') -Force -ErrorAction SilentlyContinue
         }
 
         Write-Log 'run-deploy:: Precheck compares baseline against current server only.' 'Yellow'
@@ -440,7 +437,7 @@ try {
                     }
                     else {
                         Write-Log "run-deploy:: PRECHECK: DRIFT detected but FailOnDrift is NOT present. Report: $($precheckReport.FullName) -- CONTINUING WITH DEPLOY." 'Yellow'
-                        # continue to predeploy/deploy flow; summary will note PrecheckReport and result
+                        # continue to deploy flow; summary will note PrecheckReport and result
                     }
                 }
             }

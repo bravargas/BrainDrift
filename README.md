@@ -1,19 +1,20 @@
 # BrainDrift - Deployment Drift Detection (PowerShell)
 
-BrainDrift compares three states:
+BrainDrift's deployment gate compares two states:
 - A = last successful baseline
 - B = current server state
-- C = incoming package
+
+The deployment package is not part of the default gate. This keeps drift detection focused on one question: did the server change after the last trusted deployment?
 
 ## What’s included
 - `src/DeploymentDrift.Common.psm1` - shared helpers and comparison engine
 - `src/DeploymentDrift.Common.psd1` - module manifest
 - `scripts/New-DeploymentBaseline.ps1` - create a baseline from a trusted server
 - `scripts/Test-DeploymentDrift.ps1` - run the pre-deployment drift check
-- `scripts/Export-DeploymentFileManifest.ps1` - generate an incoming package manifest
+- `scripts/Export-DeploymentFileManifest.ps1` - optional utility for direct three-way inventory analysis
 - `docs/Production-Usage.md` - production integration block for pipelines
 
-`scripts/Test-DeploymentDrift.ps1` can fall back to `config/deployment-drift.config.json` for defaults when parameters are omitted, and it can bootstrap a missing baseline when `-CreateBaselineIfMissing` is supplied.
+`scripts/Test-DeploymentDrift.ps1` and the sample `run-deploy.ps1` can fall back to `config/deployment-drift.config.json` for defaults when parameters are omitted. `run-deploy.ps1` validates baseline vs current server before deploying.
 
 The production NuGet package is defined by [BrainDrift.nuspec](BrainDrift.nuspec) and intentionally excludes sample data, demo deploy scripts, and internal tests.
 

@@ -40,7 +40,7 @@ $environmentName = $env:BRAINDRIFT_ENVIRONMENT_NAME
 
 switch ($LASTEXITCODE) {
     0 { }
-    1 { throw "BrainDrift detected drift or conflict. Review the report in $reportPath." }
+    1 { throw "BrainDrift detected server drift. Review the report in $reportPath." }
     3 { throw "BrainDrift baseline is missing at $baselinePath. Create the first trusted baseline before deploying." }
     default { throw "BrainDrift failed with exit code $LASTEXITCODE." }
 }
@@ -61,9 +61,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 ```
 
-## Optional incoming manifest
+## Optional incoming manifest for direct analysis
 
-If your pipeline already has the incoming package or extracted payload, generate an incoming manifest before the drift check and place it at `$reportPath\incoming-manifest.json`. `Test-DeploymentDrift.ps1` will use it automatically when present.
+The production gate shown above does not need the incoming package. It checks the trusted baseline against the current server. If you intentionally want direct three-way analysis with `Test-DeploymentDrift.ps1`, you can generate an incoming manifest and place it at `$reportPath\incoming-manifest.json`; the script will use it when present.
 
 ```powershell
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $scriptsPath 'Export-DeploymentFileManifest.ps1') `
