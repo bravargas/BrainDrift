@@ -42,6 +42,8 @@ Recommended operational flow:
 
 In the current implementation, a missing baseline returns exit code `3` and a clear message that initialization is required.
 
+`scripts\Test-DeploymentDrift.ps1` also writes a prominent `DEPLOYMENT DRIFT SUMMARY` table to the console/log output for completed checks, including the exit code, report path, drift status, conflict status, key file counts, and recommended action.
+
 ## Sample local deployment package (integration example)
 The repository includes a minimal, standalone example deployment package under `_sample\deploy-package`. It demonstrates how to keep deployment logic separate from BrainDrift while calling BrainDrift scripts for the pre-deployment drift check, baseline creation, deployment copy, and optional baseline refresh.
 
@@ -72,6 +74,7 @@ Notes:
 - `run-deploy.ps1` does not compare the incoming package to the server during the precheck. It only checks whether the current server still matches the trusted baseline.
 - If `BaselinePath` points to a directory instead of a `.json` file, the active baseline file is named `ApplicationName[.EnvironmentName].baseline.json`.
 - The orchestration script aborts if the configured baseline is missing by default; to allow safe bootstrap baseline creation pass `-CreateBaselineIfMissing`.
+- When the baseline is missing, `-CreateBaselineIfMissing` takes precedence over `-FailOnDrift`; `-FailOnDrift` still applies to future runs after the baseline exists.
 - If a baseline exists and drift is detected, `run-deploy.ps1` stops before `deploy` when `-FailOnDrift` is supplied.
 - If `-PromoteBaselineOnSuccess` is supplied, `run-deploy.ps1` refreshes the baseline after a successful deployment and archives the previous baseline version for root cause analysis.
 
@@ -110,7 +113,7 @@ The `run-deploy.ps1` script accepts a `-CreateBaselineIfMissing` switch to contr
 
 - Default: if you do not bind the parameter, the orchestrator will NOT create a baseline automatically and will abort the run to avoid unsafe deployments.
 
-- To allow automatic baseline creation at bootstrap, explicitly pass the switch: `-CreateBaselineIfMissing`.
+- To allow automatic baseline creation at bootstrap, explicitly pass the switch: `-CreateBaselineIfMissing`. This switch takes precedence over `-FailOnDrift` only for the missing-baseline bootstrap case.
 
 Examples:
 

@@ -3,6 +3,8 @@
 ## Unreleased
 
 - Updated `_sample/deploy-package/run-deploy.ps1` so its pre-deployment gate compares only the trusted baseline against the current server state. The incoming package is extracted and deployed, but it is not used for drift detection in the orchestrated sample flow.
+- Updated `_sample/deploy-package/run-deploy.ps1` so `-CreateBaselineIfMissing` takes precedence over `-FailOnDrift` when the configured baseline file is missing.
+- Added a prominent `DEPLOYMENT DRIFT SUMMARY` table to `scripts/Test-DeploymentDrift.ps1` so production usage gets the highlighted result directly from the core drift check.
 - Added `-ConfigPath` support to `_sample/deploy-package/run-deploy.ps1`; omitted values now resolve from `config/deployment-drift.config.json` before sample fallback defaults are used.
 - Added regression coverage for `run-deploy.ps1` config-default resolution.
 - Updated documentation to describe the current baseline-vs-server gate and to mark incoming manifests as optional direct-analysis input for `Test-DeploymentDrift.ps1`, not part of the sample `run-deploy.ps1` gate.
@@ -26,7 +28,6 @@
 	- Baseline refresh after a successful deployment is now opt-in and occurs only when `-PromoteBaselineOnSuccess` is supplied.
 - Removed `IgnoreDrift` from the drift-test and deployment orchestration scripts so `FailOnDrift` is the only switch that changes drift exit behavior.
 - Added a regression test that verifies server-side `web.config` drift returns exit code `1` when `-FailOnDrift` is enabled.
-- Updated `_sample/deploy-package/run-deploy.ps1` so `-FailOnDrift` blocks the bootstrap path when the baseline file is missing instead of auto-creating a baseline and continuing.
 - 2026-05-30: Renamed and standardized CLI parameter names across tools to the canonical `Test-DeploymentDrift.ps1` interface:
 	- `RootPath`, `BaselinePath`, `ReportPath` are canonical parameter names used by `run-deploy.ps1`.
 	- Sample package scripts now use `SourcePath` for the incoming package content.

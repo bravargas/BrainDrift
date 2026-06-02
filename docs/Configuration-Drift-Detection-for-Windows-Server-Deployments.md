@@ -320,6 +320,8 @@ For deployment zero, exit code `3` is the expected outcome until the first trust
 
 These exit codes make it easier for Harness or other orchestration tooling to route the result to failure handling, manual approval, or operational alerting.
 
+`Test-DeploymentDrift.ps1` also writes a prominent `DEPLOYMENT DRIFT SUMMARY` table before exiting. The table includes the final status, exit code, machine, baseline path, report path, drift/conflict flags, key file counts, and recommended action so operators can identify the result quickly in deployment logs.
+
 ## Operational Recommendations
 
 The following practices make drift detection more reliable and easier to operate.

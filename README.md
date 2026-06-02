@@ -16,6 +16,8 @@ The deployment package is not part of the default gate. This keeps drift detecti
 
 `scripts/Test-DeploymentDrift.ps1` and the sample `run-deploy.ps1` can fall back to `config/deployment-drift.config.json` for defaults when parameters are omitted. `run-deploy.ps1` validates baseline vs current server before deploying.
 
+`scripts/Test-DeploymentDrift.ps1` prints a highlighted `DEPLOYMENT DRIFT SUMMARY` table so the final status, exit code, report path, drift counts, and recommended action stand out in production logs.
+
 The production NuGet package is defined by [BrainDrift.nuspec](BrainDrift.nuspec) and intentionally excludes sample data, demo deploy scripts, and internal tests.
 
 ## Quick start

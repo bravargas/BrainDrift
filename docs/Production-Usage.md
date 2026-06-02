@@ -61,6 +61,8 @@ if ($LASTEXITCODE -ne 0) {
 }
 ```
 
+`Test-DeploymentDrift.ps1` prints a highlighted `DEPLOYMENT DRIFT SUMMARY` table on every completed drift check. The table includes the final status, exit code, machine, baseline path, report path, drift/conflict flags, key file counts, and the recommended action so the result stands out in production logs.
+
 ## Optional incoming manifest for direct analysis
 
 The production gate shown above does not need the incoming package. It checks the trusted baseline against the current server. If you intentionally want direct three-way analysis with `Test-DeploymentDrift.ps1`, you can generate an incoming manifest and place it at `$reportPath\incoming-manifest.json`; the script will use it when present.

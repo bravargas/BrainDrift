@@ -150,7 +150,7 @@ Describe 'DeploymentDrift Suite' {
         $reportObj.classification.hasConflict | Should -BeFalse
     }
 
-    It 'Aborts run-deploy when baseline is missing and FailOnDrift is enabled' {
+    It 'Creates baseline when missing and CreateBaselineIfMissing is enabled even with FailOnDrift' {
         if ($script:useRealServer) {
             Write-Host 'Skipping bootstrap test when using a real server path to avoid modifying production files.'
             return
@@ -158,19 +158,24 @@ Describe 'DeploymentDrift Suite' {
 
         Remove-Item -LiteralPath $script:baselineFile -ErrorAction SilentlyContinue
 
-        & $script:pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:repoRoot '_sample\deploy-package\run-deploy.ps1') `
-            -IncomingPackagePath $script:incoming `
-            -RootPath $script:server `
-            -BaselinePath $script:baseline `
-            -ReportPath $script:reports `
-            -ApplicationName 'Sample' `
-            -EnvironmentName 'TEST' `
-            -FailOnDrift `
-            -CreateBaselineIfMissing `
-            -IncludePatterns '*' | Out-Null
+        try {
+            & $script:pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:repoRoot '_sample\deploy-package\run-deploy.ps1') `
+                -IncomingPackagePath $script:incoming `
+                -RootPath $script:server `
+                -BaselinePath $script:baseline `
+                -ReportPath $script:reports `
+                -ApplicationName 'Sample' `
+                -EnvironmentName 'TEST' `
+                -FailOnDrift `
+                -CreateBaselineIfMissing `
+                -IncludePatterns '*' | Out-Null
 
-        $LASTEXITCODE | Should -Be 3
-        Test-Path -LiteralPath $script:baselineFile | Should -BeFalse
+            $LASTEXITCODE | Should -Be 0
+            Test-Path -LiteralPath $script:baselineFile | Should -BeTrue
+        }
+        finally {
+            Remove-Item -LiteralPath (Join-Path $script:server 'Portal') -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 
     It 'Aborts run-deploy when baseline is missing by default (no auto-bootstrap)' {

@@ -46,6 +46,74 @@ $pw = 'powershell'
 
 Write-Host "$($MyInvocation.MyCommand.Name):: START"
 
+function Write-DriftSummaryTable {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Status,
+
+        [Parameter(Mandatory = $true)]
+        [int]$ExitCode,
+
+        [Parameter(Mandatory = $false)]
+        [psobject]$Result,
+
+        [Parameter(Mandatory = $false)]
+        [string]$ReportPath,
+
+        [Parameter(Mandatory = $false)]
+        [string]$RecommendedAction
+    )
+
+    $color = switch -Regex ($Status) {
+        'NoDrift|BaselineCreated|Succeeded' { 'Green' }
+        'DriftDetectedContinue' { 'Yellow' }
+        default { 'Red' }
+    }
+
+    $summary = if ($null -ne $Result -and $Result.PSObject.Properties.Name -contains 'summary') { $Result.summary } else { $null }
+    $machine = if ([string]::IsNullOrWhiteSpace($env:COMPUTERNAME)) { [System.Environment]::MachineName } else { $env:COMPUTERNAME }
+    $action = if (-not [string]::IsNullOrWhiteSpace($RecommendedAction)) { $RecommendedAction } elseif ($null -ne $Result -and $Result.PSObject.Properties.Name -contains 'recommendedAction') { [string]$Result.recommendedAction } else { '' }
+
+    $rows = @(
+        [pscustomobject]@{ Item = 'Status'; Value = $Status },
+        [pscustomobject]@{ Item = 'ExitCode'; Value = [string]$ExitCode },
+        [pscustomobject]@{ Item = 'Application'; Value = $ApplicationName },
+        [pscustomobject]@{ Item = 'Environment'; Value = $EnvironmentName },
+        [pscustomobject]@{ Item = 'Machine'; Value = $machine },
+        [pscustomobject]@{ Item = 'HasDrift'; Value = if ($null -ne $Result -and $Result.PSObject.Properties.Name -contains 'hasDrift') { [string]$Result.hasDrift } else { '' } },
+        [pscustomobject]@{ Item = 'HasConflict'; Value = if ($null -ne $Result -and $Result.PSObject.Properties.Name -contains 'hasConflict') { [string]$Result.hasConflict } else { '' } },
+        [pscustomobject]@{ Item = 'Modified'; Value = if ($null -ne $summary) { [string]$summary.modifiedCount } else { '' } },
+        [pscustomobject]@{ Item = 'Missing'; Value = if ($null -ne $summary) { [string]$summary.missingCount } else { '' } },
+        [pscustomobject]@{ Item = 'NewUnexpected'; Value = if ($null -ne $summary) { [string]$summary.newUnexpectedCount } else { '' } },
+        [pscustomobject]@{ Item = 'Conflicts'; Value = if ($null -ne $summary) { [string]$summary.conflictCount } else { '' } },
+        [pscustomobject]@{ Item = 'Baseline'; Value = if ($null -ne $Result -and $Result.PSObject.Properties.Name -contains 'baselinePath') { [string]$Result.baselinePath } else { $BaselinePath } },
+        [pscustomobject]@{ Item = 'Report'; Value = $ReportPath },
+        [pscustomobject]@{ Item = 'Action'; Value = $action }
+    )
+
+    $itemWidth = [Math]::Max(14, (($rows | ForEach-Object { $_.Item.Length }) | Measure-Object -Maximum).Maximum)
+    $valueWidth = [Math]::Max(42, (($rows | ForEach-Object { if ($null -eq $_.Value) { 0 } else { ([string]$_.Value).Length } }) | Measure-Object -Maximum).Maximum)
+    $valueWidth = [Math]::Min($valueWidth, 120)
+    $line = '+-' + ('-' * $itemWidth) + '-+-' + ('-' * $valueWidth) + '-+'
+    $rowFormat = '| {0,-' + $itemWidth + '} | {1,-' + $valueWidth + '} |'
+
+    Write-Host ''
+    Write-Host $line -ForegroundColor $color
+    Write-Host (" DEPLOYMENT DRIFT SUMMARY :: $Status ") -ForegroundColor $color
+    Write-Host $line -ForegroundColor $color
+    Write-Host ($rowFormat -f 'Item', 'Value') -ForegroundColor $color
+    Write-Host $line -ForegroundColor $color
+    foreach ($row in $rows) {
+        $value = if ($null -eq $row.Value) { '' } else { [string]$row.Value }
+        if ($value.Length -gt $valueWidth) {
+            $value = $value.Substring(0, [Math]::Max(0, $valueWidth - 3)) + '...'
+        }
+        Write-Host ($rowFormat -f $row.Item, $value) -ForegroundColor $color
+    }
+    Write-Host $line -ForegroundColor $color
+    Write-Host ''
+}
+
 try {
     $moduleManifest = Join-Path $PSScriptRoot '..\src\DeploymentDrift.Common.psd1'
     $modulePsm1 = Join-Path $PSScriptRoot '..\src\DeploymentDrift.Common.psm1'
@@ -124,6 +192,7 @@ try {
             $be = $LASTEXITCODE
             if ($be -ne 0) {
                 Write-Host "$($MyInvocation.MyCommand.Name):: Failed to create baseline (exit $be). Returning code 3." -ForegroundColor Red
+                Write-DriftSummaryTable -Status 'FailedBaselineBootstrap' -ExitCode 3 -ReportPath $null -RecommendedAction 'Baseline creation failed. Review New-DeploymentBaseline.ps1 output before running drift detection again.'
                 exit 3
             }
 
@@ -180,6 +249,7 @@ try {
             }
 
             Write-Host "$($MyInvocation.MyCommand.Name):: Baseline file is missing. Return code 3 indicates initialization is required."
+            Write-DriftSummaryTable -Status 'MissingBaseline' -ExitCode 3 -Result $result -ReportPath $null
             Write-Output $result
             exit 3
         }
@@ -317,22 +387,32 @@ try {
     }
 
     # Decide exit codes: conflicts should be treated as failures; drift fails only when FailOnDrift is present.
+    $finalStatus = 'NoDrift'
+    $exitCode = 0
     if ($comparison.hasConflict) {
+        $finalStatus = 'ConflictDetected'
+        $exitCode = 1
+        Write-DriftSummaryTable -Status $finalStatus -ExitCode $exitCode -Result $result -ReportPath $reportTargetPath
         Write-Host "$($MyInvocation.MyCommand.Name):: Conflict detected. Returning exit code 1." -ForegroundColor Red
-        exit 1
+        exit $exitCode
     }
 
     if ($comparison.hasDrift) {
         if ($FailOnDrift.IsPresent) {
+            $finalStatus = 'DriftDetectedFail'
+            $exitCode = 1
+            Write-DriftSummaryTable -Status $finalStatus -ExitCode $exitCode -Result $result -ReportPath $reportTargetPath
             Write-Host "$($MyInvocation.MyCommand.Name):: Drift detected and FailOnDrift is enabled. Returning exit code 1."
-            exit 1
+            exit $exitCode
         }
         else {
+            $finalStatus = 'DriftDetectedContinue'
             Write-Host "$($MyInvocation.MyCommand.Name):: Drift detected but FailOnDrift is not enabled. Returning exit code 0." -ForegroundColor Yellow
         }
     }
 
-    exit 0
+    Write-DriftSummaryTable -Status $finalStatus -ExitCode $exitCode -Result $result -ReportPath $reportTargetPath
+    exit $exitCode
 }
 catch {
     $contextMessage = "$($MyInvocation.MyCommand.Name):: Failed to test deployment drift"

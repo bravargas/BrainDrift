@@ -233,6 +233,7 @@ else {
 
 # Summary tracking for final report
 $script:Summary = [ordered]@{
+    FinalStatus = 'Running'
     ExtractionPerformed = $false
     ExtractedPath = ''
     PrecheckPerformed = $false
@@ -249,10 +250,42 @@ $script:Summary = [ordered]@{
 }
 
 function Write-Summary {
-    Write-Log 'SUMMARY: Run summary follows' 'Gray'
-    foreach ($k in $script:Summary.Keys) {
-        Write-Log ("SUMMARY: {0}: {1}" -f $k, $script:Summary[$k]) 'Gray'
+    $status = [string]$script:Summary.FinalStatus
+    $color = switch -Regex ($status) {
+        'Succeeded|Completed|NoDrift' { 'Green' }
+        'Blocked|Failed|Drift|Conflict|Missing' { 'Red' }
+        default { 'Yellow' }
     }
+
+    $rows = foreach ($key in $script:Summary.Keys) {
+        [pscustomobject]@{
+            Item = [string]$key
+            Value = if ($null -eq $script:Summary[$key]) { '' } else { [string]$script:Summary[$key] }
+        }
+    }
+
+    $itemWidth = [Math]::Max(18, (($rows | ForEach-Object { $_.Item.Length }) | Measure-Object -Maximum).Maximum)
+    $valueWidth = [Math]::Max(40, (($rows | ForEach-Object { $_.Value.Length }) | Measure-Object -Maximum).Maximum)
+    $valueWidth = [Math]::Min($valueWidth, 120)
+    $line = '+-' + ('-' * $itemWidth) + '-+-' + ('-' * $valueWidth) + '-+'
+    $title = " RUN-DEPLOY SUMMARY :: $status "
+    $rowFormat = '| {0,-' + $itemWidth + '} | {1,-' + $valueWidth + '} |'
+
+    Write-Host ''
+    Write-Host $line -ForegroundColor $color
+    Write-Host ($rowFormat -f 'Item', 'Value') -ForegroundColor $color
+    Write-Host $line -ForegroundColor $color
+    foreach ($row in $rows) {
+        $value = $row.Value
+        if ($value.Length -gt $valueWidth) {
+            $value = $value.Substring(0, [Math]::Max(0, $valueWidth - 3)) + '...'
+        }
+        Write-Host ($rowFormat -f $row.Item, $value) -ForegroundColor $color
+    }
+    Write-Host $line -ForegroundColor $color
+    Write-Host $title -ForegroundColor $color
+    Write-Host $line -ForegroundColor $color
+    Write-Host ''
 }
 
 $pw = 'powershell'
@@ -299,17 +332,12 @@ try {
     $baselineFilePath = Resolve-BaselineFilePath -BaselinePath $BaselinePath -ApplicationName $ApplicationName -EnvironmentName $EnvironmentName
     $baselineExists = Test-Path -LiteralPath $baselineFilePath -PathType Leaf
     if (-not $baselineExists) {
-        # If baseline is missing, fail-safe: abort unless caller explicitly allows bootstrap
-        if ($FailOnDrift) {
-            $script:Summary.BaselineBootstrapBlocked = $true
-            Write-Log 'run-deploy:: Baseline file is missing and FailOnDrift is present - aborting before bootstrap baseline creation.' 'Red'
-            Write-Summary
-            exit 3
-        }
-
         if ($CreateBaselineIfMissing) {
             $script:Summary.BaselineBootstrapAttempted = $true
-            Write-Stage 'run-deploy:: BOOTSTRAP: Baseline missing - creating new baseline as requested.' 'Green'
+            Write-Stage 'run-deploy:: BOOTSTRAP: Baseline missing - CreateBaselineIfMissing is present and takes precedence.' 'Green'
+            if ($FailOnDrift) {
+                Write-Log 'run-deploy:: NOTE: FailOnDrift will still abort future drift checks after the baseline exists.' 'Yellow'
+            }
             Write-Log "run-deploy:: Invoking New-DeploymentBaseline.ps1 -RootPath $RootPath -BaselinePath $BaselinePath" 'Yellow'
             $baselineArgs = @(
                 '-ApplicationName', $ApplicationName,
@@ -329,11 +357,15 @@ try {
                 Write-Log "run-deploy:: Baseline created: $BaselinePath" 'Green'
             }
             else {
-                Write-Log "run-deploy:: Baseline creation failed (exit $be). Proceeding without baseline." 'Red'
+                $script:Summary.FinalStatus = 'FailedBaselineBootstrap'
+                Write-Log "run-deploy:: Baseline creation failed (exit $be). Aborting before deploy." 'Red'
+                Write-Summary
+                exit 2
             }
         }
         else {
             $script:Summary.BaselineBootstrapBlocked = $true
+            $script:Summary.FinalStatus = 'BlockedMissingBaseline'
             Write-Log 'run-deploy:: Baseline file is missing and auto-bootstrap was not allowed. Aborting to avoid unsafe deployment.' 'Red'
             Write-Summary
             exit 3
@@ -410,12 +442,14 @@ try {
             else {
                 Write-Log 'run-deploy:: Pre-deployment drift gate failed before a report could be written.' 'Red'
             }
+            $script:Summary.FinalStatus = 'BlockedPrecheck'
             Write-Summary
             exit 1
         }
         else {
             $precheckReport = Get-ChildItem -Path $precheckReports -Filter 'drift-report-*.json' -File | Sort-Object LastWriteTime -Descending | Select-Object -First 1
             if ($null -eq $precheckReport) {
+                $script:Summary.FinalStatus = 'FailedNoPrecheckReport'
                 Write-Log 'run-deploy:: Pre-deployment drift gate completed but no report was written.' 'Red'
                 Write-Summary
                 exit 2
@@ -425,12 +459,14 @@ try {
             if ($precheckObject.classification.hasConflict -or $precheckObject.classification.hasDrift) {
                 $script:Summary.PrecheckReport = $precheckReport.FullName
                 if ($precheckObject.classification.hasConflict) {
+                    $script:Summary.FinalStatus = 'BlockedConflict'
                     Write-Log "run-deploy:: PRECHECK: CONFLICT detected. Report: $($precheckReport.FullName) -- ABORTING." 'Red'
                     Write-Summary
                     exit 1
                 }
                 elseif ($precheckObject.classification.hasDrift) {
                     if ($FailOnDrift) {
+                        $script:Summary.FinalStatus = 'BlockedDrift'
                         Write-Log "run-deploy:: PRECHECK: DRIFT detected and FailOnDrift is present. Report: $($precheckReport.FullName) -- ABORTING." 'Red'
                         Write-Summary
                         exit 1
@@ -452,7 +488,7 @@ try {
     $deployExit = $LASTEXITCODE
     $script:Summary.DeployExit = $deployExit
     Write-Log "run-deploy:: deploy.ps1 exit code: $deployExit" 'Yellow'
-    if ($deployExit -ne 0) { Write-Log 'run-deploy:: deploy failed' 'Red'; Write-Summary; exit 2 }
+    if ($deployExit -ne 0) { $script:Summary.FinalStatus = 'FailedDeploy'; Write-Log 'run-deploy:: deploy failed' 'Red'; Write-Summary; exit 2 }
 
     # 3) refresh the baseline after a successful deployment only if explicitly requested
     if ($PromoteBaselineOnSuccess) {
@@ -468,7 +504,7 @@ try {
             $script:Summary.BaselinePath = $BaselinePath
         }
         Write-Log "run-deploy:: New-DeploymentBaseline.ps1 exit code: $baselineExit" 'Yellow'
-        if ($baselineExit -ne 0) { Write-Log 'run-deploy:: baseline creation failed' 'Red'; Write-Summary; exit 2 }
+        if ($baselineExit -ne 0) { $script:Summary.FinalStatus = 'FailedBaselineRefresh'; Write-Log 'run-deploy:: baseline creation failed' 'Red'; Write-Summary; exit 2 }
     }
     else {
         Write-Log 'run-deploy:: Baseline refresh skipped (PromoteBaselineOnSuccess not present).' 'Gray'
@@ -478,6 +514,7 @@ try {
         Write-Log 'run-deploy:: FailOnDrift was supplied but is not needed for the new baseline-first flow.' 'Gray'
     }
 
+    $script:Summary.FinalStatus = 'Succeeded'
     Write-Summary
     Write-Stage 'run-deploy:: DONE - deployment flow complete' 'Green'
     exit 0
