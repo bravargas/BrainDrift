@@ -179,6 +179,114 @@ function Get-FileInventory {
     }
 }
 
+function Resolve-DeploymentDriftConfiguration {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$ConfigPath = $null,
+
+        [Parameter(Mandatory = $false)]
+        [string]$ApplicationName = $null,
+
+        [Parameter(Mandatory = $false)]
+        [string]$EnvironmentName = $null,
+
+        [Parameter(Mandatory = $false)]
+        [string]$RootPath = $null,
+
+        [Parameter(Mandatory = $false)]
+        [string]$BaselinePath = $null,
+
+        [Parameter(Mandatory = $false)]
+        [string]$ReportPath = $null,
+
+        [Parameter(Mandatory = $false)]
+        [string[]]$IncludePatterns,
+
+        [Parameter(Mandatory = $false)]
+        [string[]]$ExcludePatterns,
+
+        [Parameter(Mandatory = $false)]
+        [ValidateSet('SHA1', 'SHA256', 'SHA384', 'SHA512', 'MD5')]
+        [string]$HashAlgorithm = 'SHA256',
+
+        [Parameter(Mandatory = $false)]
+        [ValidateRange(0, 1000)]
+        [int]$ArchiveRetentionCount = 10,
+
+        [Parameter(Mandatory = $false)]
+        [bool]$IsArchiveRetentionCountBound = $false
+    )
+
+    Write-Host "$($MyInvocation.MyCommand.Name):: START"
+
+    try {
+        Write-Host "$($MyInvocation.MyCommand.Name):: Parameters received:"
+        Write-Host "$($MyInvocation.MyCommand.Name):: ConfigPath : $ConfigPath"
+
+        if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
+            $moduleRoot = Split-Path -Path $PSScriptRoot -Parent
+            $ConfigPath = Join-Path $moduleRoot 'config\deployment-drift.config.json'
+        }
+
+        if (Test-Path -LiteralPath $ConfigPath -PathType Leaf) {
+            try {
+                $configDocument = Read-JsonFile -Path $ConfigPath
+                if ($null -ne $configDocument) {
+                    if ([string]::IsNullOrWhiteSpace($ApplicationName) -and ($configDocument.PSObject.Properties.Name -contains 'ApplicationName') -and $null -ne $configDocument.ApplicationName) { $ApplicationName = $configDocument.ApplicationName }
+                    if ([string]::IsNullOrWhiteSpace($EnvironmentName) -and ($configDocument.PSObject.Properties.Name -contains 'EnvironmentName') -and $null -ne $configDocument.EnvironmentName) { $EnvironmentName = $configDocument.EnvironmentName }
+                    if ([string]::IsNullOrWhiteSpace($RootPath) -and ($configDocument.PSObject.Properties.Name -contains 'RootPath') -and $null -ne $configDocument.RootPath) { $RootPath = $configDocument.RootPath }
+                    if ([string]::IsNullOrWhiteSpace($BaselinePath) -and ($configDocument.PSObject.Properties.Name -contains 'BaselinePath') -and $null -ne $configDocument.BaselinePath) { $BaselinePath = $configDocument.BaselinePath }
+                    if ([string]::IsNullOrWhiteSpace($ReportPath) -and ($configDocument.PSObject.Properties.Name -contains 'ReportPath') -and $null -ne $configDocument.ReportPath) { $ReportPath = $configDocument.ReportPath }
+                    if ($null -eq $IncludePatterns -and ($configDocument.PSObject.Properties.Name -contains 'IncludePatterns') -and $null -ne $configDocument.IncludePatterns) { $IncludePatterns = @($configDocument.IncludePatterns) }
+                    if ($null -eq $ExcludePatterns -and ($configDocument.PSObject.Properties.Name -contains 'ExcludePatterns') -and $null -ne $configDocument.ExcludePatterns) { $ExcludePatterns = @($configDocument.ExcludePatterns) }
+                    if ([string]::IsNullOrWhiteSpace($HashAlgorithm) -and ($configDocument.PSObject.Properties.Name -contains 'HashAlgorithm') -and $null -ne $configDocument.HashAlgorithm) { $HashAlgorithm = $configDocument.HashAlgorithm }
+
+                    if (-not $IsArchiveRetentionCountBound -and ($configDocument.PSObject.Properties.Name -contains 'ArchiveRetentionCount') -and $null -ne $configDocument.ArchiveRetentionCount) {
+                        $configuredCount = 0
+                        if ([int]::TryParse([string]$configDocument.ArchiveRetentionCount, [ref]$configuredCount)) {
+                            if ($configuredCount -ge 0 -and $configuredCount -le 1000) {
+                                $ArchiveRetentionCount = $configuredCount
+                            }
+                        }
+                    }
+                }
+            }
+            catch {
+                Write-Host "$($MyInvocation.MyCommand.Name):: WARNING: Unable to read config '$ConfigPath' : $($_.Exception.Message)" -ForegroundColor Yellow
+            }
+        }
+
+        if ([string]::IsNullOrWhiteSpace($BaselinePath)) {
+            $BaselinePath = 'C:\Deployments\baselines'
+        }
+
+        $result = [pscustomobject]@{
+            ConfigPath            = $ConfigPath
+            ApplicationName       = $ApplicationName
+            EnvironmentName       = $EnvironmentName
+            RootPath              = $RootPath
+            BaselinePath          = $BaselinePath
+            ReportPath            = $ReportPath
+            IncludePatterns       = @($IncludePatterns)
+            ExcludePatterns       = @($ExcludePatterns)
+            HashAlgorithm         = $HashAlgorithm
+            ArchiveRetentionCount = $ArchiveRetentionCount
+        }
+
+        Write-Host "$($MyInvocation.MyCommand.Name):: Result : Configuration resolved"
+        return $result
+    }
+    catch {
+        $contextMessage = "$($MyInvocation.MyCommand.Name):: Failed to resolve deployment drift configuration"
+        Write-Host "$($MyInvocation.MyCommand.Name):: ERROR: $($_.Exception.Message)"
+        throw [System.Exception]::new($contextMessage, $_.Exception)
+    }
+    finally {
+        Write-Host "$($MyInvocation.MyCommand.Name):: END"
+    }
+}
+
 function Read-JsonFile {
     [CmdletBinding()]
     param(
@@ -463,6 +571,8 @@ function New-DriftReport {
 
         [Parameter(Mandatory = $true)]
         [object]$ComparisonResult
+        ,[Parameter(Mandatory = $false)]
+        [switch]$IncludeUnchangedFiles
     )
 
     Write-Host "$($MyInvocation.MyCommand.Name):: START"
@@ -480,6 +590,18 @@ function New-DriftReport {
             $recommendedAction = 'Investigate drift before deploying.'
         }
 
+        # By default, only include files that are not classified as 'Unchanged'.
+        # Callers may request the previous behavior by passing -IncludeUnchangedFiles.
+        if ($IncludeUnchangedFiles.IsPresent) {
+            $files = $ComparisonResult.files
+        }
+        else {
+            $files = @()
+            if ($null -ne $ComparisonResult.files) {
+                $files = $ComparisonResult.files | Where-Object { $_.classification -ne 'Unchanged' }
+            }
+        }
+
         $report = [pscustomobject]@{
             metadata = $Metadata
             summary = $ComparisonResult.summary
@@ -488,7 +610,7 @@ function New-DriftReport {
                 hasConflict = $ComparisonResult.hasConflict
                 recommendedAction = $recommendedAction
             }
-            files = $ComparisonResult.files
+            files = $files
             recommendedAction = $recommendedAction
         }
 
@@ -505,4 +627,4 @@ function New-DriftReport {
     }
 }
 
-Export-ModuleMember -Function Get-NormalizedRelativePath, Test-PathMatchesPattern, Get-FileInventory, Read-JsonFile, Write-JsonFile, Compare-FileInventories, New-DriftReport
+Export-ModuleMember -Function Get-NormalizedRelativePath, Test-PathMatchesPattern, Get-FileInventory, Resolve-DeploymentDriftConfiguration, Read-JsonFile, Write-JsonFile, Compare-FileInventories, New-DriftReport

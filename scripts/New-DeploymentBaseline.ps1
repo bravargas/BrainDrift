@@ -6,7 +6,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$DeploymentId,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $false)]
     [string]$EnvironmentName,
 
     [Parameter(Mandatory = $true)]
@@ -54,14 +54,33 @@ try {
         throw [System.IO.FileNotFoundException]::new("Module manifest or psm1 not found under src: '$moduleManifest' / '$modulePsm1'")
     }
 
+    $resolvedConfig = Resolve-DeploymentDriftConfiguration `
+        -ConfigPath $ConfigPath `
+        -ApplicationName $ApplicationName `
+        -EnvironmentName $EnvironmentName `
+        -RootPath $RootPath `
+        -BaselinePath $BaselinePath `
+        -IncludePatterns $IncludePatterns `
+        -ExcludePatterns $ExcludePatterns `
+        -HashAlgorithm $HashAlgorithm `
+        -ArchiveRetentionCount $ArchiveRetentionCount `
+        -IsArchiveRetentionCountBound ($PSBoundParameters.ContainsKey('ArchiveRetentionCount'))
+
+    $ConfigPath = $resolvedConfig.ConfigPath
+    $ApplicationName = $resolvedConfig.ApplicationName
+    $EnvironmentName = $resolvedConfig.EnvironmentName
+    $RootPath = $resolvedConfig.RootPath
+    $BaselinePath = $resolvedConfig.BaselinePath
+    $IncludePatterns = $resolvedConfig.IncludePatterns
+    $ExcludePatterns = $resolvedConfig.ExcludePatterns
+    $HashAlgorithm = $resolvedConfig.HashAlgorithm
+    $effectiveArchiveRetentionCount = $resolvedConfig.ArchiveRetentionCount
+
     Write-Host "$($MyInvocation.MyCommand.Name):: Parameters received:"
     Write-Host "$($MyInvocation.MyCommand.Name):: ApplicationName : $ApplicationName"
     Write-Host "$($MyInvocation.MyCommand.Name):: DeploymentId    : $DeploymentId"
     Write-Host "$($MyInvocation.MyCommand.Name):: EnvironmentName : $EnvironmentName"
     Write-Host "$($MyInvocation.MyCommand.Name):: ServerName      : $ServerName"
-    if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
-        $ConfigPath = Join-Path $PSScriptRoot '..\config\deployment-drift.config.json'
-    }
 
     function Get-SafeFileNamePart {
         param(
@@ -163,44 +182,6 @@ try {
         }
     }
 
-    function Resolve-ArchiveRetentionCount {
-        param(
-            [Parameter(Mandatory = $true)]
-            [string]$ConfigPath,
-
-            [Parameter(Mandatory = $true)]
-            [int]$DefaultArchiveRetentionCount,
-
-            [Parameter(Mandatory = $false)]
-            [bool]$IsArchiveRetentionCountBound
-        )
-
-        if ($IsArchiveRetentionCountBound) {
-            return $DefaultArchiveRetentionCount
-        }
-
-        if (Test-Path -LiteralPath $ConfigPath -PathType Leaf) {
-            try {
-                $configDocument = Read-JsonFile -Path $ConfigPath
-                if ($null -ne $configDocument.ArchiveRetentionCount) {
-                    $configuredCount = 0
-                    if ([int]::TryParse([string]$configDocument.ArchiveRetentionCount, [ref]$configuredCount)) {
-                        if ($configuredCount -ge 0 -and $configuredCount -le 1000) {
-                            return $configuredCount
-                        }
-                    }
-                }
-            }
-            catch {
-                Write-Host "$($MyInvocation.MyCommand.Name):: WARNING: Unable to read ArchiveRetentionCount from config '$ConfigPath'. Using default $DefaultArchiveRetentionCount."
-            }
-        }
-
-        return $DefaultArchiveRetentionCount
-    }
-
-    $effectiveArchiveRetentionCount = Resolve-ArchiveRetentionCount -ConfigPath $ConfigPath -DefaultArchiveRetentionCount $ArchiveRetentionCount -IsArchiveRetentionCountBound ($PSBoundParameters.ContainsKey('ArchiveRetentionCount'))
-
     Write-Host "$($MyInvocation.MyCommand.Name):: RootPath        : $RootPath"
     Write-Host "$($MyInvocation.MyCommand.Name):: BaselinePath    : $BaselinePath"
     Write-Host "$($MyInvocation.MyCommand.Name):: ConfigPath      : $ConfigPath"
@@ -215,19 +196,33 @@ try {
     if ($null -eq $ExcludePatterns) { $ExcludePatterns = @() }
     elseif (-not ($ExcludePatterns -is [System.Array])) { $ExcludePatterns = @($ExcludePatterns) }
 
+    # Resolve baseline file path: if BaselinePath is a directory, compose filename using ApplicationName
+    if ([System.IO.Path]::GetExtension($BaselinePath) -ieq '.json') {
+        $baselineFilePath = $BaselinePath
+    }
+    else {
+        $baselineDir = $BaselinePath
+        if (-not [System.IO.Path]::IsPathRooted($baselineDir)) { $baselineDir = Join-Path (Get-Location).Path $baselineDir }
+        if (-not (Test-Path -LiteralPath $baselineDir)) { New-Item -Path $baselineDir -ItemType Directory -Force | Out-Null }
+        $appSafe = Get-SafeFileNamePart -Value $ApplicationName -Fallback 'app'
+        $envSafe = if (-not [string]::IsNullOrWhiteSpace($EnvironmentName)) { Get-SafeFileNamePart -Value $EnvironmentName -Fallback 'env' } else { '' }
+        $baselineFileName = if ([string]::IsNullOrWhiteSpace($envSafe)) { "{0}.baseline.json" -f $appSafe } else { "{0}.{1}.baseline.json" -f $appSafe, $envSafe }
+        $baselineFilePath = Join-Path $baselineDir $baselineFileName
+    }
+
     $archivedBaselinePath = $null
-    if (Test-Path -LiteralPath $BaselinePath -PathType Leaf) {
+    if (Test-Path -LiteralPath $baselineFilePath -PathType Leaf) {
         Write-Host "$($MyInvocation.MyCommand.Name):: Existing baseline detected. Archiving previous version before overwrite."
         $existingBaselineDocument = $null
         try {
-            $existingBaselineDocument = Read-JsonFile -Path $BaselinePath
+            $existingBaselineDocument = Read-JsonFile -Path $baselineFilePath
         }
         catch {
             $existingBaselineDocument = $null
         }
 
-        $archivedBaselinePath = Get-BaselineArchivePath -CurrentBaselinePath $BaselinePath -ExistingBaselineDocument $existingBaselineDocument
-        Copy-Item -LiteralPath $BaselinePath -Destination $archivedBaselinePath -Force -ErrorAction Stop
+        $archivedBaselinePath = Get-BaselineArchivePath -CurrentBaselinePath $baselineFilePath -ExistingBaselineDocument $existingBaselineDocument
+        Copy-Item -LiteralPath $baselineFilePath -Destination $archivedBaselinePath -Force -ErrorAction Stop
         Write-Host "$($MyInvocation.MyCommand.Name):: Archived existing baseline to $archivedBaselinePath"
 
         if ($effectiveArchiveRetentionCount -gt 0) {
@@ -260,10 +255,10 @@ try {
         files = $inventory
     }
 
-    Write-JsonFile -InputObject $baseline -Path $BaselinePath -Depth 50 | Out-Null
+    Write-JsonFile -InputObject $baseline -Path $baselineFilePath -Depth 50 | Out-Null
 
     $result = [pscustomobject]@{
-        baselinePath = $BaselinePath
+        baselinePath = $baselineFilePath
         archivedBaselinePath = $archivedBaselinePath
         configPath = $ConfigPath
         archiveRetentionCount = $effectiveArchiveRetentionCount

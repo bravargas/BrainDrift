@@ -35,6 +35,7 @@ $environmentName = $env:BRAINDRIFT_ENVIRONMENT_NAME
   -RootPath $rootPath `
   -BaselinePath $baselinePath `
   -ReportPath $reportPath `
+  -ConfigPath $configPath `
   -FailOnDrift
 
 switch ($LASTEXITCODE) {
@@ -74,7 +75,7 @@ If your pipeline already has the incoming package or extracted payload, generate
 
 - `BRAINDRIFT_ROOT`: path where the BrainDrift package was unpacked.
 - `BRAINDRIFT_ROOT_PATH`: application root on the target server.
-- `BRAINDRIFT_BASELINE_PATH`: path to the active baseline JSON.
+- `BRAINDRIFT_BASELINE_PATH`: path to the baseline directory or explicit `.json` file (defaults to `C:\Deployments\baselines`). If a directory is supplied, the active baseline file is named `ApplicationName[.EnvironmentName].baseline.json`.
 - `BRAINDRIFT_REPORT_PATH`: folder where drift reports will be written.
 - `BRAINDRIFT_APPLICATION_NAME`: logical application name.
 - `BRAINDRIFT_ENVIRONMENT_NAME`: logical environment name.

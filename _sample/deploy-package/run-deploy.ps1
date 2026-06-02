@@ -1,22 +1,22 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory=$true)]
-    [string]$IncomingPackagePath,
-
-    [Parameter(Mandatory=$true)]
-    [string]$RootPath,
-
-    [Parameter(Mandatory=$true)]
-    [string]$BaselinePath,
-
-    [Parameter(Mandatory=$true)]
-    [string]$ReportPath,
+    [Parameter(Mandatory=$false)]
+    [string]$IncomingPackagePath = $null,
 
     [Parameter(Mandatory=$false)]
-    [string]$ApplicationName = 'Sample',
+    [string]$RootPath = $null,
 
     [Parameter(Mandatory=$false)]
-    [string]$EnvironmentName = 'PROD',
+    [string]$BaselinePath = $null,
+
+    [Parameter(Mandatory=$false)]
+    [string]$ReportPath = $null,
+
+    [Parameter(Mandatory=$false)]
+    [string]$ApplicationName = $null,
+
+    [Parameter(Mandatory=$false)]
+    [string]$EnvironmentName = $null,
 
     [Parameter(Mandatory=$false)]
     [string]$DeploymentId = ('AUTO-{0}' -f ([System.DateTime]::UtcNow.ToString('yyyyMMddHHmmss'))),
@@ -34,12 +34,6 @@ param(
     [switch]$CreateBaselineIfMissing,
 
     [Parameter(Mandatory=$false)]
-    [switch]$SkipBaselineCreation,
-
-    [Parameter(Mandatory=$false)]
-    [switch]$ContinueWithoutBaseline,
-
-    [Parameter(Mandatory=$false)]
     [string[]]$IncludePatterns,
 
     [Parameter(Mandatory=$false)]
@@ -53,12 +47,63 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# CreateBaselineIfMissing defaults to false when the caller does not explicitly bind the parameter.
-# This ensures baseline files are NOT auto-created unless the caller explicitly requests it.
-if (-not $PSBoundParameters.ContainsKey('CreateBaselineIfMissing')) { $CreateBaselineIfMissing = $false }
+# Removed deprecated flags related to skipping baseline creation.
 
-# support an alternate, more explicit flag name that maps to SkipBaselineCreation
-if ($ContinueWithoutBaseline.IsPresent) { $SkipBaselineCreation = $true }
+function Resolve-SampleDeployPackageDefaults {
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$IncomingPackagePath,
+
+        [Parameter(Mandatory = $false)]
+        [string]$RootPath,
+
+        [Parameter(Mandatory = $false)]
+        [string]$BaselinePath,
+
+        [Parameter(Mandatory = $false)]
+        [string]$ReportPath,
+
+        [Parameter(Mandatory = $false)]
+        [string]$ApplicationName,
+
+        [Parameter(Mandatory = $false)]
+        [string]$EnvironmentName
+    )
+
+    $sampleRoot = Split-Path -Path $PSScriptRoot -Parent
+    $resolved = [pscustomobject]@{
+        IncomingPackagePath = $IncomingPackagePath
+        RootPath = $RootPath
+        BaselinePath = $BaselinePath
+        ReportPath = $ReportPath
+        ApplicationName = $ApplicationName
+        EnvironmentName = $EnvironmentName
+    }
+
+    if ([string]::IsNullOrWhiteSpace($resolved.IncomingPackagePath)) { $resolved.IncomingPackagePath = Join-Path $PSScriptRoot 'packages\mybank_2251.1.0.0.nupkg' }
+    if ([string]::IsNullOrWhiteSpace($resolved.RootPath)) { $resolved.RootPath = Join-Path $sampleRoot 'server' }
+    if ([string]::IsNullOrWhiteSpace($resolved.BaselinePath)) { $resolved.BaselinePath = Join-Path $sampleRoot 'baseline\last-successful-deployment.json' }
+    if ([string]::IsNullOrWhiteSpace($resolved.ReportPath)) { $resolved.ReportPath = Join-Path $sampleRoot 'reports' }
+    if ([string]::IsNullOrWhiteSpace($resolved.ApplicationName)) { $resolved.ApplicationName = 'Sample' }
+    if ([string]::IsNullOrWhiteSpace($resolved.EnvironmentName)) { $resolved.EnvironmentName = 'TEST' }
+
+    return $resolved
+}
+
+$defaults = Resolve-SampleDeployPackageDefaults `
+    -IncomingPackagePath $IncomingPackagePath `
+    -RootPath $RootPath `
+    -BaselinePath $BaselinePath `
+    -ReportPath $ReportPath `
+    -ApplicationName $ApplicationName `
+    -EnvironmentName $EnvironmentName
+
+$IncomingPackagePath = $defaults.IncomingPackagePath
+$RootPath = $defaults.RootPath
+$BaselinePath = $defaults.BaselinePath
+$ReportPath = $defaults.ReportPath
+$ApplicationName = $defaults.ApplicationName
+$EnvironmentName = $defaults.EnvironmentName
 
 function Write-Log {
     param(
@@ -82,7 +127,7 @@ function Write-Stage {
 Write-Stage "run-deploy:: START - Application: $ApplicationName | Environment: $EnvironmentName | DeploymentId: $DeploymentId | Server: $ServerName" 'Green'
 
 # If FailOnDrift is false, clearly note that drift will not abort the deployment
-if (-not $FailOnDrift.IsPresent) {
+if (-not $FailOnDrift) {
     Write-Log 'run-deploy:: NOTE: FailOnDrift is NOT present - drift will NOT abort the deployment. Proceeding with caution.' 'Yellow'
 }
 else {
@@ -108,7 +153,7 @@ $script:Summary = [ordered]@{
     BaselineBootstrapBlocked = $false
 }
 
-function Print-Summary {
+function Write-Summary {
     Write-Log 'SUMMARY: Run summary follows' 'Gray'
     foreach ($k in $script:Summary.Keys) {
         Write-Log ("SUMMARY: {0}: {1}" -f $k, $script:Summary[$k]) 'Gray'
@@ -158,10 +203,10 @@ try {
     $baselineExists = Test-Path -LiteralPath $BaselinePath -PathType Leaf
     if (-not $baselineExists) {
         # If baseline is missing, fail-safe: abort unless caller explicitly allows bootstrap
-        if ($FailOnDrift.IsPresent) {
+        if ($FailOnDrift) {
             $script:Summary.BaselineBootstrapBlocked = $true
             Write-Log 'run-deploy:: Baseline file is missing and FailOnDrift is present - aborting before bootstrap baseline creation.' 'Red'
-            Print-Summary
+            Write-Summary
             exit 3
         }
 
@@ -190,14 +235,10 @@ try {
                 Write-Log "run-deploy:: Baseline creation failed (exit $be). Proceeding without baseline." 'Red'
             }
         }
-        elseif ($SkipBaselineCreation.IsPresent) {
-            Write-Warning 'run-deploy:: Baseline file is missing but caller allowed skipping baseline creation - proceeding with predeploy/deploy.'
-            Write-Stage 'run-deploy:: BOOTSTRAP: No baseline found - proceeding to predeploy and deploy (skip requested).'
-        }
         else {
             $script:Summary.BaselineBootstrapBlocked = $true
             Write-Log 'run-deploy:: Baseline file is missing and auto-bootstrap was not allowed. Aborting to avoid unsafe deployment.' 'Red'
-            Print-Summary
+            Write-Summary
             exit 3
         }
     }
@@ -218,17 +259,10 @@ try {
         )
 
         # Forward run-deploy switches to Test-DeploymentDrift.ps1 where appropriate
-        if ($FailOnDrift.IsPresent) { $precheckArgs += '-FailOnDrift' }
+        if ($FailOnDrift) { $precheckArgs += '-FailOnDrift' }
 
-        if ($CreateBaselineIfMissing.IsPresent) {
+        if ($CreateBaselineIfMissing) {
             $precheckArgs += '-CreateBaselineIfMissing'
-        }
-        elseif ($SkipBaselineCreation.IsPresent) {
-            $precheckArgs += '-SkipBaselineCreation'
-        }
-        else {
-            # Default behavior: if caller didn't specify, forward what we auto-defaulted earlier
-            if ($CreateBaselineIfMissing) { $precheckArgs += '-CreateBaselineIfMissing' } else { $precheckArgs += '-SkipBaselineCreation' }
         }
 
         if ($null -ne $IncludePatterns -and $IncludePatterns.Count -gt 0) {
@@ -282,14 +316,14 @@ try {
             else {
                 Write-Log 'run-deploy:: Pre-deployment drift gate failed before a report could be written.' 'Red'
             }
-            Print-Summary
+            Write-Summary
             exit 1
         }
         else {
             $precheckReport = Get-ChildItem -Path $precheckReports -Filter 'drift-report-*.json' -File | Sort-Object LastWriteTime -Descending | Select-Object -First 1
             if ($null -eq $precheckReport) {
                 Write-Log 'run-deploy:: Pre-deployment drift gate completed but no report was written.' 'Red'
-                Print-Summary
+                Write-Summary
                 exit 2
             }
 
@@ -298,13 +332,13 @@ try {
                 $script:Summary.PrecheckReport = $precheckReport.FullName
                 if ($precheckObject.classification.hasConflict) {
                     Write-Log "run-deploy:: PRECHECK: CONFLICT detected. Report: $($precheckReport.FullName) -- ABORTING." 'Red'
-                    Print-Summary
+                    Write-Summary
                     exit 1
                 }
                 elseif ($precheckObject.classification.hasDrift) {
-                    if ($FailOnDrift.IsPresent) {
+                    if ($FailOnDrift) {
                         Write-Log "run-deploy:: PRECHECK: DRIFT detected and FailOnDrift is present. Report: $($precheckReport.FullName) -- ABORTING." 'Red'
-                        Print-Summary
+                        Write-Summary
                         exit 1
                     }
                     else {
@@ -324,7 +358,7 @@ try {
     $predeployExit = $LASTEXITCODE
     $script:Summary.PredeployExit = $predeployExit
     Write-Log "run-deploy:: predeploy.ps1 exit code: $predeployExit" 'Yellow'
-    if ($predeployExit -ne 0) { Write-Log 'run-deploy:: pre-deployment step failed' 'Red'; Print-Summary; exit 2 }
+    if ($predeployExit -ne 0) { Write-Log 'run-deploy:: pre-deployment step failed' 'Red'; Write-Summary; exit 2 }
 
     # 2) deploy: apply files
     Write-Stage 'run-deploy:: STEP: Deploy - applying files (deploy.ps1)' 'Blue'
@@ -334,10 +368,10 @@ try {
     $deployExit = $LASTEXITCODE
     $script:Summary.DeployExit = $deployExit
     Write-Log "run-deploy:: deploy.ps1 exit code: $deployExit" 'Yellow'
-    if ($deployExit -ne 0) { Write-Log 'run-deploy:: deploy failed' 'Red'; Print-Summary; exit 2 }
+    if ($deployExit -ne 0) { Write-Log 'run-deploy:: deploy failed' 'Red'; Write-Summary; exit 2 }
 
     # 3) refresh the baseline after a successful deployment only if explicitly requested
-    if ($PromoteBaselineOnSuccess.IsPresent) {
+    if ($PromoteBaselineOnSuccess) {
         Write-Stage 'run-deploy:: STEP: Deployment succeeded - creating or refreshing baseline (New-DeploymentBaseline.ps1)' 'Green'
         Write-Warning 'run-deploy:: -PromoteBaselineOnSuccess requested: refreshing baseline now.'
         Write-Log "run-deploy:: Invoking New-DeploymentBaseline.ps1 -RootPath $RootPath -BaselinePath $BaselinePath" 'Yellow'
@@ -350,17 +384,17 @@ try {
             $script:Summary.BaselinePath = $BaselinePath
         }
         Write-Log "run-deploy:: New-DeploymentBaseline.ps1 exit code: $baselineExit" 'Yellow'
-        if ($baselineExit -ne 0) { Write-Log 'run-deploy:: baseline creation failed' 'Red'; Print-Summary; exit 2 }
+        if ($baselineExit -ne 0) { Write-Log 'run-deploy:: baseline creation failed' 'Red'; Write-Summary; exit 2 }
     }
     else {
         Write-Log 'run-deploy:: Baseline refresh skipped (PromoteBaselineOnSuccess not present).' 'Gray'
     }
 
-    if ($FailOnDrift.IsPresent) {
+    if ($FailOnDrift) {
         Write-Log 'run-deploy:: FailOnDrift was supplied but is not needed for the new baseline-first flow.' 'Gray'
     }
 
-    Print-Summary
+    Write-Summary
     Write-Stage 'run-deploy:: DONE - deployment flow complete' 'Green'
     exit 0
 }

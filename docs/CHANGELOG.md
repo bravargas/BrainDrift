@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `_sample/deploy-package/run-deploy.ps1` now defaults to the bundled sample package, sample server, baseline, and reports paths so it can be used directly for local validation without passing parameters.
+- `scripts/Test-DeploymentDrift.ps1` and `scripts/New-DeploymentBaseline.ps1` now use a shared configuration resolution helper, including `BaselinePath` fallback in drift checks when it is not supplied explicitly, and they continue to match the baseline filename pattern used by the baseline generator so existing baselines are reused instead of being recreated.
 - Added a reusable PowerShell drift detection solution for Windows deployment workflows.
 - Added baseline generation, drift testing, and file manifest export scripts.
 - Added a shared PowerShell module for inventory, JSON, pattern matching, and drift report generation.
@@ -16,7 +18,7 @@
 - Updated `_sample/deploy-package/run-deploy.ps1` behavior for missing baselines and baseline refresh:
 	- Default behavior now aborts the run (exit code 3) when the configured baseline file is missing. This prevents unsafe deployments when no trusted baseline exists.
 	- To allow bootstrap creation of a baseline, callers may pass `-CreateBaselineIfMissing`.
-	- To explicitly continue the deployment without a baseline (unsafe), callers may pass `-SkipBaselineCreation` or the alias `-ContinueWithoutBaseline`.
+	- To bootstrap a missing baseline safely, callers may pass `-CreateBaselineIfMissing`; continuing without a baseline is not supported by default.
 	- Baseline refresh after a successful deployment is now opt-in and occurs only when `-PromoteBaselineOnSuccess` is supplied.
 - Removed `IgnoreDrift` from the drift-test and deployment orchestration scripts so `FailOnDrift` is the only switch that changes drift exit behavior.
 - Added a regression test that verifies server-side `web.config` drift returns exit code `1` when `-FailOnDrift` is enabled.
@@ -29,6 +31,8 @@
 - 2026-05-31: Added baseline archival to `scripts/New-DeploymentBaseline.ps1`. When a baseline is regenerated, the previous file is copied to `archive\<baseline-name>\` with timestamped filenames so historical baselines remain available for root cause analysis.
 - 2026-05-31: Added baseline archive retention to `scripts/New-DeploymentBaseline.ps1`. By default, each baseline archive keeps the 10 most recent historical copies; callers can pass `-ArchiveRetentionCount` to tune or disable cleanup.
 - 2026-05-31: Moved the default archive retention setting into `config/deployment-drift.config.json` as `ArchiveRetentionCount`. `New-DeploymentBaseline.ps1` now reads that value by default and still allows `-ArchiveRetentionCount` to override it.
+
+- 2026-06-01: Drift reports now include only changed files by default to keep reports focused; callers may pass `-IncludeUnchangedFiles` to include all files (previous behavior).
 	- Removed backwards-compatibility aliases; all examples and orchestration use the new names.
 - 2026-05-30: Hardened `scripts\New-DeploymentBaseline.ps1` to normalize `IncludePatterns`/`ExcludePatterns` to arrays and ensure inventory results are array-wrapped so `fileCount` calculations do not fail on singleton results.
 - 2026-05-30: Updated sample scripts (`deploy.ps1`, `predeploy.ps1`, `trigger-conflict.ps1`) and docs to use the new parameter names, and updated `docs/DeploymentDrift.Usage.md` examples accordingly.

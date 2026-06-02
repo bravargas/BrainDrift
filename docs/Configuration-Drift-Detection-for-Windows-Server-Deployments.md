@@ -159,6 +159,7 @@ This script performs the pre-deployment drift check.
 
 It:
 
+- Loads defaults from `config/deployment-drift.config.json` when values such as application name, environment name, root path, baseline path, report path, include/exclude patterns, or hash algorithm are not passed explicitly.
 - Loads the baseline JSON file.
 - Recalculates hashes from the current server files.
 - Optionally scans the incoming package.
@@ -169,7 +170,7 @@ It:
 - Returns a useful object for pipeline consumption.
 
 ### `run-deploy.ps1`
-
+  "baselinePath": "C:\\Deployments\\MyApp\\baselines\\MyApp.QA.baseline.json",
 This sample orchestration script demonstrates how to combine the BrainDrift scripts with a deployment package.
 
 It:
@@ -199,7 +200,12 @@ This JSON file provides example configuration values for a typical application.
 
 It is intended as a reusable starting point for deployment teams and pipeline authors.
 
-It can also control baseline archive retention through `ArchiveRetentionCount`, which `scripts\New-DeploymentBaseline.ps1` uses by default unless the caller passes `-ArchiveRetentionCount` explicitly.
+The same file is used in two places:
+
+- `scripts/Test-DeploymentDrift.ps1` reads it as a fallback source for missing parameters.
+- `scripts/New-DeploymentBaseline.ps1` reads `ArchiveRetentionCount` from it unless the caller passes `-ArchiveRetentionCount` explicitly.
+
+It can also control baseline archive retention through `ArchiveRetentionCount`.
 
 ## Baseline JSON Example
 
@@ -250,7 +256,7 @@ The drift report records what changed, how it was classified, and what action is
     "applicationName": "MyApp",
     "environmentName": "QA",
     "rootPath": "C:\\inetpub\\MyApp",
-    "baselinePath": "C:\\Deployments\\MyApp\\baseline\\last-successful-deployment.json",
+    "baselinePath": "C:\\Deployments\\MyApp\\baselines\\MyApp.baseline.json",
     "incomingPackagePath": "C:\\Deployments\\MyApp\\incoming",
     "generatedAtUtc": "2026-05-30T17:30:00Z",
     "generatedBy": "DOMAIN\\DeployUser",

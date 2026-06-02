@@ -1,32 +1,31 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$ApplicationName,
+    [Parameter(Mandatory = $false)]
+    [string]$ApplicationName = $null,
 
-    [Parameter(Mandatory = $true)]
-    [string]$EnvironmentName,
+    [Parameter(Mandatory = $false)]
+    [string]$EnvironmentName = $null,
 
-    [Parameter(Mandatory = $true)]
-    [string]$RootPath,
+    [Parameter(Mandatory = $false)]
+    [string]$RootPath = $null,
 
-    [Parameter(Mandatory = $true)]
-    [string]$BaselinePath,
+    [Parameter(Mandatory = $false)]
+    [string]$BaselinePath = $null,
     
-    [Parameter(Mandatory = $true)]
-    [string]$ReportPath,
+    [Parameter(Mandatory = $false)]
+    [string]$ReportPath = $null,
+
+    [Parameter(Mandatory = $false)]
+    [string]$ConfigPath = $null,
 
     [Parameter(Mandatory = $false)]
     [switch]$FailOnDrift,
 
     [Parameter(Mandatory = $false)]
-    [switch]$SkipBaselineCreation,
-
-    [Parameter(Mandatory = $false)]
-    [switch]$ContinueWithoutBaseline,
-
-    [Parameter(Mandatory = $false)]
     [switch]$CreateBaselineIfMissing,
 
+    [Parameter(Mandatory = $false)]
+    [switch]$IncludeUnchangedFiles,
 
     [Parameter(Mandatory = $false)]
     [string[]]$IncludePatterns,
@@ -60,23 +59,55 @@ try {
         throw [System.IO.FileNotFoundException]::new("Module manifest or psm1 not found under src: '$moduleManifest' / '$modulePsm1'")
     }
 
-    Write-Host "$($MyInvocation.MyCommand.Name):: Parameters received:"
+    $resolvedConfig = Resolve-DeploymentDriftConfiguration `
+        -ConfigPath $ConfigPath `
+        -ApplicationName $ApplicationName `
+        -EnvironmentName $EnvironmentName `
+        -RootPath $RootPath `
+        -BaselinePath $BaselinePath `
+        -ReportPath $ReportPath `
+        -IncludePatterns $IncludePatterns `
+        -ExcludePatterns $ExcludePatterns `
+        -HashAlgorithm $HashAlgorithm
+
+    $ConfigPath = $resolvedConfig.ConfigPath
+    $ApplicationName = $resolvedConfig.ApplicationName
+    $EnvironmentName = $resolvedConfig.EnvironmentName
+    $RootPath = $resolvedConfig.RootPath
+    $BaselinePath = $resolvedConfig.BaselinePath
+    $ReportPath = $resolvedConfig.ReportPath
+    $IncludePatterns = $resolvedConfig.IncludePatterns
+    $ExcludePatterns = $resolvedConfig.ExcludePatterns
+    $HashAlgorithm = $resolvedConfig.HashAlgorithm
+
+    Write-Host "$($MyInvocation.MyCommand.Name):: Parameters resolved:"
     Write-Host "$($MyInvocation.MyCommand.Name):: ApplicationName     : $ApplicationName"
     Write-Host "$($MyInvocation.MyCommand.Name):: EnvironmentName     : $EnvironmentName"
     Write-Host "$($MyInvocation.MyCommand.Name):: RootPath            : $RootPath"
     Write-Host "$($MyInvocation.MyCommand.Name):: BaselinePath        : $BaselinePath"
     Write-Host "$($MyInvocation.MyCommand.Name):: ReportPath          : $ReportPath"
+    Write-Host "$($MyInvocation.MyCommand.Name):: ConfigPath          : $ConfigPath"
     Write-Host "$($MyInvocation.MyCommand.Name):: FailOnDrift         : $FailOnDrift"
-    Write-Host "$($MyInvocation.MyCommand.Name):: SkipBaselineCreation : $SkipBaselineCreation"
-    Write-Host "$($MyInvocation.MyCommand.Name):: ContinueWithoutBaseline : $ContinueWithoutBaseline"
     Write-Host "$($MyInvocation.MyCommand.Name):: CreateBaselineIfMissing : $CreateBaselineIfMissing"
+    Write-Host "$($MyInvocation.MyCommand.Name):: IncludeUnchangedFiles   : $IncludeUnchangedFiles"
     Write-Host "$($MyInvocation.MyCommand.Name):: IncludePatterns     : $($IncludePatterns -join ', ')"
     Write-Host "$($MyInvocation.MyCommand.Name):: ExcludePatterns     : $($ExcludePatterns -join ', ')"
     Write-Host "$($MyInvocation.MyCommand.Name):: HashAlgorithm       : $HashAlgorithm"
-    # support alternate flag name
-    if ($ContinueWithoutBaseline.IsPresent) { $SkipBaselineCreation = $true }
+    # Resolve baseline file path: if user passed a directory, compose a filename using ApplicationName
+    if ([System.IO.Path]::GetExtension($BaselinePath) -ieq '.json') {
+        $baselineFilePath = $BaselinePath
+    }
+    else {
+        $baselineDir = $BaselinePath
+        if (-not [System.IO.Path]::IsPathRooted($baselineDir)) { $baselineDir = Join-Path (Get-Location).Path $baselineDir }
+        if (-not (Test-Path -LiteralPath $baselineDir)) { New-Item -Path $baselineDir -ItemType Directory -Force | Out-Null }
+        $appSafePart = if ($null -ne $ApplicationName) { ($ApplicationName -replace '[^A-Za-z0-9._-]','_') } else { 'app' }
+        $envSafePart = if ($null -ne $EnvironmentName) { ($EnvironmentName -replace '[^A-Za-z0-9._-]','_') } else { '' }
+        $baselineFileName = if ([string]::IsNullOrWhiteSpace($envSafePart)) { "{0}.baseline.json" -f $appSafePart } else { "{0}.{1}.baseline.json" -f $appSafePart, $envSafePart }
+        $baselineFilePath = Join-Path $baselineDir $baselineFileName
+    }
 
-    if (-not (Test-Path -LiteralPath $BaselinePath -PathType Leaf)) {
+    if (-not (Test-Path -LiteralPath $baselineFilePath -PathType Leaf)) {
         if ($CreateBaselineIfMissing.IsPresent) {
             Write-Host "$($MyInvocation.MyCommand.Name):: Baseline missing and CreateBaselineIfMissing requested. Attempting to create baseline..." -ForegroundColor Yellow
             $deploymentId = ('AUTO-{0}' -f ([System.DateTime]::UtcNow.ToString('yyyyMMddHHmmss')))
@@ -86,14 +117,27 @@ try {
                 '-EnvironmentName', $EnvironmentName,
                 '-ServerName', $env:COMPUTERNAME,
                 '-RootPath', $RootPath,
-                '-BaselinePath', $BaselinePath
+                '-BaselinePath', $BaselinePath,
+                '-ConfigPath', $ConfigPath
             )
-            & $pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'New-DeploymentBaseline.ps1') @baselineArgs
+            $createResult = & $pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'New-DeploymentBaseline.ps1') @baselineArgs
             $be = $LASTEXITCODE
             if ($be -ne 0) {
                 Write-Host "$($MyInvocation.MyCommand.Name):: Failed to create baseline (exit $be). Returning code 3." -ForegroundColor Red
                 exit 3
             }
+
+            # If the called script returned an object with baselinePath, prefer that as the baseline file path
+            try {
+                $returned = @($createResult) | Where-Object { $_ -and $_.PSObject.Properties.Name -contains 'baselinePath' } | Select-Object -First 1
+                if ($null -ne $returned -and -not [string]::IsNullOrWhiteSpace($returned.baselinePath)) {
+                    $baselineFilePath = $returned.baselinePath
+                }
+            }
+            catch {
+                # ignore and continue using previously computed path
+            }
+
             Write-Host "$($MyInvocation.MyCommand.Name):: Baseline created successfully, continuing." -ForegroundColor Green
         }
         else {
@@ -106,7 +150,7 @@ try {
                 applicationName   = $ApplicationName
                 environmentName   = $EnvironmentName
                 rootPath          = $RootPath
-                baselinePath      = $BaselinePath
+                baselinePath      = $baselineFilePath
                 hashAlgorithm     = $HashAlgorithm
                 hasDrift          = $false
                 hasConflict       = $false
@@ -141,7 +185,13 @@ try {
         }
     }
 
-    $baselineDocument = Read-JsonFile -Path $BaselinePath
+    # Ensure required inputs exist after attempting to resolve from config
+    if ([string]::IsNullOrWhiteSpace($ApplicationName) -or [string]::IsNullOrWhiteSpace($RootPath) -or [string]::IsNullOrWhiteSpace($ReportPath)) {
+        Write-Host "$($MyInvocation.MyCommand.Name):: ERROR: Missing required parameters. Ensure ApplicationName, RootPath and ReportPath are provided or available in $ConfigPath" -ForegroundColor Red
+        exit 2
+    }
+
+    $baselineDocument = Read-JsonFile -Path $baselineFilePath
     $baselineInventory = $baselineDocument.files
     $currentInventory = Get-FileInventory -RootPath $RootPath -IncludePatterns $IncludePatterns -ExcludePatterns $ExcludePatterns -HashAlgorithm $HashAlgorithm
 
@@ -189,7 +239,7 @@ try {
         hashAlgorithm   = $HashAlgorithm
     }
 
-    $report = New-DriftReport -Metadata $reportMetadata -ComparisonResult $comparison
+    $report = New-DriftReport -Metadata $reportMetadata -ComparisonResult $comparison -IncludeUnchangedFiles:$IncludeUnchangedFiles.IsPresent
 
     $reportTargetPath = $ReportPath
     $reportExtension = [System.IO.Path]::GetExtension($ReportPath)
@@ -220,12 +270,12 @@ try {
         applicationName   = $ApplicationName
         environmentName   = $EnvironmentName
         rootPath          = $RootPath
-        baselinePath      = $BaselinePath
+        baselinePath      = $baselineFilePath
         hashAlgorithm     = $HashAlgorithm
         hasDrift          = $comparison.hasDrift
         hasConflict       = $comparison.hasConflict
         summary           = $comparison.summary
-        files             = $comparison.files
+        files             = $report.files
         recommendedAction = $report.recommendedAction
     }
 

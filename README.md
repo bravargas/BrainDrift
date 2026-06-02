@@ -13,6 +13,8 @@ BrainDrift compares three states:
 - `scripts/Export-DeploymentFileManifest.ps1` - generate an incoming package manifest
 - `docs/Production-Usage.md` - production integration block for pipelines
 
+`scripts/Test-DeploymentDrift.ps1` can fall back to `config/deployment-drift.config.json` for defaults when parameters are omitted, and it can bootstrap a missing baseline when `-CreateBaselineIfMissing` is supplied.
+
 The production NuGet package is defined by [BrainDrift.nuspec](BrainDrift.nuspec) and intentionally excludes sample data, demo deploy scripts, and internal tests.
 
 ## Quick start

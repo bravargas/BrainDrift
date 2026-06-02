@@ -24,6 +24,7 @@
         'Get-NormalizedRelativePath',
         'Test-PathMatchesPattern',
         'Get-FileInventory',
+        'Resolve-DeploymentDriftConfiguration',
         'Read-JsonFile',
         'Write-JsonFile',
         'Compare-FileInventories',

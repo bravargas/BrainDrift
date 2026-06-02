@@ -2,7 +2,7 @@
   "ApplicationName": "XD",
   "EnvironmentName": "PDX",
   "RootPath": "C:\\Architect\\2251_MU",
-  "BaselinePath": "C:\\Deployments\\baseline\\last-successful-deployment.json",
+  "BaselinePath": "C:\\Deployments\\baselines",
   "ReportPath": "C:\\Deployments\\reports",
   "IncludePatterns": [
     "web.config",

@@ -4,6 +4,24 @@ Describe 'DeploymentDrift Suite' {
         $envServer = $env:BD_SERVER_ROOT
         $script:scripts = Join-Path $script:repoRoot 'scripts'
 
+        function Get-BaselineFileName {
+            param(
+                [Parameter(Mandatory = $true)]
+                [string]$ApplicationName,
+
+                [Parameter(Mandatory = $false)]
+                [string]$EnvironmentName
+            )
+
+            $appSafePart = $ApplicationName -replace '[^A-Za-z0-9._-]', '_'
+            $envSafePart = if (-not [string]::IsNullOrWhiteSpace($EnvironmentName)) { $EnvironmentName -replace '[^A-Za-z0-9._-]', '_' } else { '' }
+            if ([string]::IsNullOrWhiteSpace($envSafePart)) {
+                return "{0}.baseline.json" -f $appSafePart
+            }
+
+            return "{0}.{1}.baseline.json" -f $appSafePart, $envSafePart
+        }
+
         if ([string]::IsNullOrWhiteSpace($envServer)) {
             # use isolated test sample (default)
             $script:testSample = Join-Path $script:repoRoot '_sample\testrun'
@@ -11,12 +29,13 @@ Describe 'DeploymentDrift Suite' {
 
             $script:server = Join-Path $script:testSample 'server'
             $script:incoming = Join-Path $script:testSample 'incoming'
-            $script:baseline = Join-Path $script:testSample 'baseline\last-successful-deployment.json'
+            $script:baseline = Join-Path $script:testSample 'baseline'
+            $script:baselineFile = Join-Path $script:baseline (Get-BaselineFileName -ApplicationName 'Sample' -EnvironmentName 'TEST')
             $script:reports = Join-Path $script:testSample 'reports'
 
             New-Item -ItemType Directory -Path $script:server -Force | Out-Null
             New-Item -ItemType Directory -Path $script:incoming -Force | Out-Null
-            New-Item -ItemType Directory -Path (Split-Path $script:baseline -Parent) -Force | Out-Null
+            New-Item -ItemType Directory -Path $script:baseline -Force | Out-Null
             New-Item -ItemType Directory -Path $script:reports -Force | Out-Null
 
             # create deterministic test files
@@ -42,7 +61,8 @@ Describe 'DeploymentDrift Suite' {
             New-Item -ItemType Directory -Path $script:incoming -Force | Out-Null
             New-Item -ItemType Directory -Path $script:reports -Force | Out-Null
             New-Item -ItemType Directory -Path $baselineDir -Force | Out-Null
-            $script:baseline = Join-Path $baselineDir 'last-successful-deployment.json'
+            $script:baseline = $baselineDir
+            $script:baselineFile = Join-Path $script:baseline (Get-BaselineFileName -ApplicationName 'Sample' -EnvironmentName 'TEST')
 
             # Create a safe incoming package area for tests (do not touch the real server)
             # We will not modify the real server; tests that require server modification are skipped.
@@ -54,14 +74,14 @@ Describe 'DeploymentDrift Suite' {
     }
 
     It 'Creates baseline from sample server' {
-        Remove-Item -LiteralPath $script:baseline -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $script:baselineFile -ErrorAction SilentlyContinue
         & $script:pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:scripts 'New-DeploymentBaseline.ps1') `
             -ApplicationName 'Sample' -DeploymentId 'TEST' -EnvironmentName 'TEST' -ServerName 'LOCAL' `
             -RootPath $script:server -BaselinePath $script:baseline -IncludePatterns '*' | Out-Null
 
-        Test-Path $script:baseline | Should -BeTrue
-        $script:baselineInitial = Join-Path (Split-Path $script:baseline -Parent) 'initial-last-successful-deployment.json'
-        Copy-Item -Path $script:baseline -Destination $script:baselineInitial -Force
+        Test-Path $script:baselineFile | Should -BeTrue
+        $script:baselineInitial = Join-Path $script:baseline ('initial-{0}' -f [System.IO.Path]::GetFileName($script:baselineFile))
+        Copy-Item -Path $script:baselineFile -Destination $script:baselineInitial -Force
     }
 
     It 'Reports no drift when baseline equals server' {
@@ -72,6 +92,40 @@ Describe 'DeploymentDrift Suite' {
         $report = Get-ChildItem -Path $script:reports -Filter 'drift-report-*.json' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
         Test-Path $report.FullName | Should -BeTrue
         $reportObj = Get-Content -Path $report.FullName -Raw | ConvertFrom-Json
+        $reportObj.classification.hasDrift | Should -BeFalse
+    }
+
+    It 'Loads defaults from config when parameters are omitted' {
+        $configPath = Join-Path $script:reports 'deployment-drift.config.json'
+        $configObject = [ordered]@{
+            ApplicationName = 'Sample'
+            EnvironmentName = 'TEST'
+            RootPath = $script:server
+            BaselinePath = $script:baseline
+            ReportPath = $script:reports
+            IncludePatterns = @('*')
+            ExcludePatterns = @()
+            HashAlgorithm = 'SHA256'
+        }
+
+        Set-Content -LiteralPath $configPath -Value ($configObject | ConvertTo-Json -Depth 10) -Encoding UTF8
+
+        $baselineName = [System.IO.Path]::GetFileName($script:baselineFile)
+        $expectedReportPattern = 'drift-report-Sample-TEST-*.json'
+
+        & $script:pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:scripts 'Test-DeploymentDrift.ps1') `
+            -ConfigPath $configPath | Out-Null
+
+        $LASTEXITCODE | Should -Be 0
+
+        $report = Get-ChildItem -Path $script:reports -Filter $expectedReportPattern | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        Test-Path $report.FullName | Should -BeTrue
+
+        $reportObj = Get-Content -Path $report.FullName -Raw | ConvertFrom-Json
+        $reportObj.metadata.applicationName | Should -Be 'Sample'
+        $reportObj.metadata.environmentName | Should -Be 'TEST'
+        $reportObj.metadata.rootPath | Should -Be $script:server
+        $reportObj.metadata.baselinePath | Should -Be $script:baseline
         $reportObj.classification.hasDrift | Should -BeFalse
     }
 
@@ -102,7 +156,7 @@ Describe 'DeploymentDrift Suite' {
             return
         }
 
-        Remove-Item -LiteralPath $script:baseline -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $script:baselineFile -ErrorAction SilentlyContinue
 
         & $script:pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:repoRoot '_sample\deploy-package\run-deploy.ps1') `
             -IncomingPackagePath $script:incoming `
@@ -116,7 +170,7 @@ Describe 'DeploymentDrift Suite' {
             -IncludePatterns '*' | Out-Null
 
         $LASTEXITCODE | Should -Be 3
-        Test-Path -LiteralPath $script:baseline | Should -BeFalse
+        Test-Path -LiteralPath $script:baselineFile | Should -BeFalse
     }
 
     It 'Aborts run-deploy when baseline is missing by default (no auto-bootstrap)' {
@@ -125,7 +179,7 @@ Describe 'DeploymentDrift Suite' {
             return
         }
 
-        Remove-Item -LiteralPath $script:baseline -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $script:baselineFile -ErrorAction SilentlyContinue
 
         & $script:pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:repoRoot '_sample\deploy-package\run-deploy.ps1') `
             -IncomingPackagePath $script:incoming `
@@ -137,7 +191,7 @@ Describe 'DeploymentDrift Suite' {
             -IncludePatterns '*' | Out-Null
 
         $LASTEXITCODE | Should -Be 3
-        Test-Path -LiteralPath $script:baseline | Should -BeFalse
+        Test-Path -LiteralPath $script:baselineFile | Should -BeFalse
     }
 
     It 'Detects conflict when incoming package changes files' {
@@ -173,9 +227,9 @@ Describe 'DeploymentDrift Suite' {
             return
         }
 
-        if (-not (Test-Path -LiteralPath $script:baseline -PathType Leaf)) {
+        if (-not (Test-Path -LiteralPath $script:baselineFile -PathType Leaf)) {
             if ($null -ne $script:baselineInitial -and (Test-Path -LiteralPath $script:baselineInitial -PathType Leaf)) {
-                Copy-Item -LiteralPath $script:baselineInitial -Destination $script:baseline -Force
+                Copy-Item -LiteralPath $script:baselineInitial -Destination $script:baselineFile -Force
             }
             else {
                 & $script:pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:scripts 'New-DeploymentBaseline.ps1') `
@@ -187,22 +241,22 @@ Describe 'DeploymentDrift Suite' {
         }
 
         if ($null -eq $script:baselineInitial -or -not (Test-Path -LiteralPath $script:baselineInitial -PathType Leaf)) {
-            $script:baselineInitial = Join-Path (Split-Path -Path $script:baseline -Parent) 'initial-last-successful-deployment.json'
-            Copy-Item -LiteralPath $script:baseline -Destination $script:baselineInitial -Force
+            $script:baselineInitial = Join-Path $script:baseline ('initial-{0}' -f [System.IO.Path]::GetFileName($script:baselineFile))
+            Copy-Item -LiteralPath $script:baselineFile -Destination $script:baselineInitial -Force
         }
 
-        $configDirectory = Join-Path (Split-Path -Path $script:baseline -Parent) 'config'
+        $configDirectory = Join-Path $script:baseline 'config'
         New-Item -ItemType Directory -Path $configDirectory -Force | Out-Null
         $configPath = Join-Path $configDirectory 'deployment-drift.config.json'
         Set-Content -LiteralPath $configPath -Value (@{ ArchiveRetentionCount = 1 } | ConvertTo-Json) -Encoding UTF8
 
-        $archiveFolder = Join-Path (Split-Path -Path $script:baseline -Parent) 'archive'
-        $archiveFolder = Join-Path $archiveFolder ([System.IO.Path]::GetFileNameWithoutExtension($script:baseline))
+        $archiveFolder = Join-Path $script:baseline 'archive'
+        $archiveFolder = Join-Path $archiveFolder ([System.IO.Path]::GetFileNameWithoutExtension($script:baselineFile))
         if (Test-Path -LiteralPath $archiveFolder) {
             Remove-Item -LiteralPath $archiveFolder -Recurse -Force -ErrorAction SilentlyContinue
         }
 
-        $originalBaselineContent = Get-Content -LiteralPath $script:baseline -Raw
+        $originalBaselineContent = Get-Content -LiteralPath $script:baselineFile -Raw
         $originalServerWebConfig = Get-Content -LiteralPath (Join-Path $script:server 'web.config') -Raw
 
         try {
@@ -220,20 +274,21 @@ Describe 'DeploymentDrift Suite' {
                 -ApplicationName 'Sample' -DeploymentId 'TEST-REFRESH-2' -EnvironmentName 'TEST' -ServerName 'LOCAL' `
                 -RootPath $script:server -BaselinePath $script:baseline -ConfigPath $configPath -IncludePatterns '*' | Out-Null
 
-            Test-Path -LiteralPath $script:baseline | Should -BeTrue
 
-            $archivedBaselines = Get-ChildItem -Path $archiveFolder -Filter '*.baseline.json' -File | Sort-Object LastWriteTime -Descending
+            Test-Path -LiteralPath $script:baselineFile | Should -BeTrue
+
+            $archivedBaselines = @(Get-ChildItem -Path $archiveFolder -Filter '*.baseline.json' -File | Sort-Object LastWriteTime -Descending)
             $archivedBaselines.Count | Should -Be 1
 
             $archivedBaselineObj = Get-Content -LiteralPath $archivedBaselines[0].FullName -Raw | ConvertFrom-Json
             $archivedBaselineObj.metadata.deploymentId | Should -Be 'TEST-REFRESH-1'
 
-            $refreshedBaselineObj = Get-Content -LiteralPath $script:baseline -Raw | ConvertFrom-Json
+            $refreshedBaselineObj = Get-Content -LiteralPath $script:baselineFile -Raw | ConvertFrom-Json
             $refreshedBaselineObj.metadata.deploymentId | Should -Be 'TEST-REFRESH-2'
             $refreshedBaselineObj.files | Should -Not -BeNullOrEmpty
         }
         finally {
-            Set-Content -LiteralPath $script:baseline -Value $originalBaselineContent -Encoding UTF8
+            Set-Content -LiteralPath $script:baselineFile -Value $originalBaselineContent -Encoding UTF8
             Set-Content -LiteralPath (Join-Path $script:server 'web.config') -Value $originalServerWebConfig -Encoding UTF8
         }
     }

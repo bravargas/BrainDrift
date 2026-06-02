@@ -8,8 +8,6 @@ powershell.exe -ExecutionPolicy Bypass -File .\scripts\Test-DeploymentDrift.ps1 
   -EnvironmentName "QA" `
   -RootPath "$env:TEMP\BrainDriftDeployTarget" `
   -BaselinePath "$env:TEMP\bd-baseline.json" `
-  
-  -ReportPath "$env:TEMP\BrainDriftReports" `
   -FailOnDrift `
   -IncludePatterns "web.config","*.config","*.json","*.xml","*.dll" `
   -ExcludePatterns "logs*","temp*","App_Data\cache*"
@@ -25,8 +23,7 @@ powershell.exe -ExecutionPolicy Bypass -File .\scripts\New-DeploymentBaseline.ps
   -ServerName $env:COMPUTERNAME `
   -RootPath "$env:TEMP\BrainDriftDeployTarget" `
   -BaselinePath "$env:TEMP\bd-baseline.json" `
-  -IncludePatterns "web.config","*.config","*.json","*.xml","*.dll" `
-  -ExcludePatterns "logs*","temp*","App_Data\cache*"
+  -IncludePatterns "web.config","*.config","*.json","*.xml","*.dll"
 ```
 
 ## Manifest export for an incoming package
@@ -43,7 +40,7 @@ powershell.exe -ExecutionPolicy Bypass -File .\scripts\Export-DeploymentFileMani
 
 If Deployment 1 installed `web.config` with hash `AAA`, the server was later edited to `XXX`, and Deployment 2 brings `web.config` with hash `CCC`, the drift check reports:
 
-- `web.config` is modified on the server relative to the last successful deployment baseline.
+baseline = "$env:TEMP\\bd-baseline"
 - `web.config` also has an incoming official change.
 - The file is classified as a potential conflict.
 - The recommended action is to stop deployment and review the file before overwriting it.
@@ -61,10 +58,9 @@ Recommended operational flow:
 In the current implementation, a missing baseline returns exit code `3` and a clear message that initialization is required.
 
 ## Sample local deployment package (integration example)
+The repository includes a minimal, standalone example deployment package under `_sample\deploy-package`. It demonstrates how to keep deployment logic separate from BrainDrift while calling BrainDrift scripts for manifest generation, pre-deployment checks, baseline creation, and optional baseline refresh.
 
-The repository includes a minimal, standalone example deployment package under `_sample\deploy-package`. It demonstrates how to keep deployment logic separate from BrainDrift while calling BrainDrift scripts for manifest generation, pre-deployment checks and baseline creation.
-
-Files:
+For local validation, `run-deploy.ps1` in that folder now has sensible defaults for the sample package, sample server, baseline, and reports paths, so you can run it without arguments from within `_sample\deploy-package`.
 
 Usage example (copy package to the server or run from a CI agent):
 
@@ -78,17 +74,21 @@ $reports = "$env:TEMP\\BrainDriftReports"
 # dry run
 powershell -NoProfile -ExecutionPolicy Bypass -File _sample\deploy-package\deploy.ps1 -SourcePath $incoming -RootPath $target
 
-# real run, orchestrated with BrainDrift drift gate and automatic baseline refresh
+# real run, orchestrated with BrainDrift drift gate and optional baseline refresh
 powershell -NoProfile -ExecutionPolicy Bypass -File _sample\deploy-package\run-deploy.ps1 `
-  -IncomingPackagePath $incoming -RootPath $target -BaselinePath $baseline -ReportPath $reports
+  -IncomingPackagePath $incoming -RootPath $target -BaselinePath $baseline -ReportPath $reports `
+  -PromoteBaselineOnSuccess
 ```
+
 
 Notes:
 - The example keeps BrainDrift scripts out of the deployment package internals; integration occurs by invoking BrainDrift's entry scripts from the deploy orchestration.
 - Customize `IncludePatterns` / `ExcludePatterns` and hash algorithm by editing the example scripts or calling the BrainDrift scripts directly from your pipeline.
-- The orchestration script treats a missing baseline as deployment zero, logs a warning, and continues with `predeploy` and `deploy`.
+- `Test-DeploymentDrift.ps1` now falls back to `config\deployment-drift.config.json` when `-ConfigPath` is not supplied, and `New-DeploymentBaseline.ps1` uses the same file for `ArchiveRetentionCount` unless the caller overrides it.
+- If `BaselinePath` points to a directory instead of a `.json` file, the active baseline file is named `ApplicationName[.EnvironmentName].baseline.json`.
+- The orchestration script aborts if the configured baseline is missing by default; to allow safe bootstrap baseline creation pass `-CreateBaselineIfMissing`.
 - If a baseline exists and drift is detected, `run-deploy.ps1` stops before `predeploy` and `deploy`.
-- After a successful deployment, `run-deploy.ps1` refreshes the baseline and archives the previous baseline version for root cause analysis.
+- If `-PromoteBaselineOnSuccess` is supplied, `run-deploy.ps1` refreshes the baseline after a successful deployment and archives the previous baseline version for root cause analysis.
 
 Passing the `-FailOnDrift` option
 -------------------------------
@@ -124,9 +124,8 @@ Creating a baseline when missing
 The `run-deploy.ps1` script accepts a `-CreateBaselineIfMissing` switch to control behavior when the configured `BaselinePath` does not exist.
 
 - Default: if you do not bind the parameter, the orchestrator will NOT create a baseline automatically and will abort the run to avoid unsafe deployments.
+
 - To allow automatic baseline creation at bootstrap, explicitly pass the switch: `-CreateBaselineIfMissing`.
- - To allow automatic baseline creation at bootstrap, explicitly pass the switch: `-CreateBaselineIfMissing`.
- - To explicitly continue the deployment without a baseline (unsafe), pass `-SkipBaselineCreation` or the more explicit alias `-ContinueWithoutBaseline`.
 
 Examples:
 
@@ -134,8 +133,8 @@ Examples:
 # Allow automatic baseline creation at bootstrap (safe - creates baseline if missing)
 .\_sample\deploy-package\run-deploy.ps1 -IncomingPackagePath $incoming -RootPath $target -BaselinePath $baseline -ReportPath $reports -CreateBaselineIfMissing
 
-# Explicitly continue without a baseline (unsafe - proceed even when baseline missing)
-.\_sample\deploy-package\run-deploy.ps1 -IncomingPackagePath $incoming -RootPath $target -BaselinePath $baseline -ReportPath $reports -ContinueWithoutBaseline
+# Create baseline at bootstrap (recommended for safe initial deployment)
+.\_sample\deploy-package\run-deploy.ps1 -IncomingPackagePath $incoming -RootPath $target -BaselinePath $baseline -ReportPath $reports -CreateBaselineIfMissing
 
 # Refresh baseline only when requested after a successful deploy
 .\_sample\deploy-package\run-deploy.ps1 -IncomingPackagePath $incoming -RootPath $target -BaselinePath $baseline -ReportPath $reports -PromoteBaselineOnSuccess
@@ -162,7 +161,7 @@ That helper leaves the target and incoming package in a conflicting state, runs 
 
 ## Configuration example
 
-The sample config file at `config\deployment-drift.config.json` can control the default archive retention used by `New-DeploymentBaseline.ps1`.
+The sample config file at `config\deployment-drift.config.json` can control the default archive retention used by `New-DeploymentBaseline.ps1`, and it can also supply defaults that `Test-DeploymentDrift.ps1` consumes when its own parameters are omitted.
 
 ```json
 {
