@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Updated `_sample/deploy-package/run-deploy.ps1` to preserve a Harness-like multi-step orchestration shape: prepare incoming package, verify baseline vs current server, deploy, optionally refresh baseline after success, and clean temporary artifacts.
+- Updated `_sample/deploy-package/run-deploy.ps1` deployment-zero behavior so a missing baseline skips the pre-deployment drift gate by default and can create the first trusted baseline after successful deployment when `-PromoteBaselineOnSuccess` is supplied.
+- Kept `-CreateBaselineIfMissing` as an explicit optional pre-deployment baseline snapshot for first-run audit scenarios.
+- Added final run statuses for successful-but-not-clean executions: `SucceededWithDriftWarning` when drift was allowed and `SucceededDeploymentZero` when the first run proceeds without a baseline.
+- Updated `config/deployment-drift.config.json` to use a shared root with folder-scoped includes: `RootPath = C:\Architect\2251_MU` and `IncludePatterns = ["HostAdapters/*", "Portal/*"]`.
+- Added regression coverage that verifies `HostAdapters/*` and `Portal/*` include nested files such as `HostAdapters/Dna/...` while ignoring sibling folders such as `Other Folder`.
+- Updated production documentation with Harness multi-step command examples: BrainDrift verification before predeploy/deploy and baseline refresh after successful deploy, before cleanup.
+- Updated docs to distinguish direct `Test-DeploymentDrift.ps1` missing-baseline exit code `3` from `run-deploy.ps1` deployment-zero orchestration.
 - Updated `_sample/deploy-package/run-deploy.ps1` so its pre-deployment gate compares only the trusted baseline against the current server state. The incoming package is extracted and deployed, but it is not used for drift detection in the orchestrated sample flow.
 - Updated `_sample/deploy-package/run-deploy.ps1` so `-CreateBaselineIfMissing` takes precedence over `-FailOnDrift` when the configured baseline file is missing.
 - Added a prominent `DEPLOYMENT DRIFT SUMMARY` table to `scripts/Test-DeploymentDrift.ps1` so production usage gets the highlighted result directly from the core drift check.
@@ -22,9 +30,9 @@
 - Defaulted `_sample/deploy-package/pack-nupkg.ps1` to the bundled `tools\nuget.exe`.
  - [2026-05-30] Detected server drift during manual test: `Portal/Web.config` was modified on the server compared to the baseline (see report). Report: `C:\Users\Brainer\AppData\Local\Temp\BrainDriftReports\drift-report-20260530-211926.json`. Recommended action: investigar la modificación del `web.config` o restaurar desde el backup antes de desplegar.
 - Updated `_sample/deploy-package/run-deploy.ps1` behavior for missing baselines and baseline refresh:
-	- Default behavior now aborts the run (exit code 3) when the configured baseline file is missing. This prevents unsafe deployments when no trusted baseline exists.
-	- To allow bootstrap creation of a baseline, callers may pass `-CreateBaselineIfMissing`.
-	- To bootstrap a missing baseline safely, callers may pass `-CreateBaselineIfMissing`; continuing without a baseline is not supported by default.
+	- Default behavior treats a missing baseline as deployment zero and skips the pre-deployment drift gate because no trusted reference exists yet.
+	- To create an optional pre-deployment baseline snapshot, callers may pass `-CreateBaselineIfMissing`.
+	- To create the first trusted baseline after a successful deployment, callers may pass `-PromoteBaselineOnSuccess`.
 	- Baseline refresh after a successful deployment is now opt-in and occurs only when `-PromoteBaselineOnSuccess` is supplied.
 - Removed `IgnoreDrift` from the drift-test and deployment orchestration scripts so `FailOnDrift` is the only switch that changes drift exit behavior.
 - Added a regression test that verifies server-side `web.config` drift returns exit code `1` when `-FailOnDrift` is enabled.

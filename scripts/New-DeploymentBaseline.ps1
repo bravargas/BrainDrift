@@ -41,6 +41,28 @@ $ErrorActionPreference = 'Stop'
 
 Write-Host "$($MyInvocation.MyCommand.Name):: START"
 
+function ConvertTo-PatternArray {
+    param(
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [string[]]$Patterns
+    )
+
+    if ($null -eq $Patterns) { return @() }
+
+    return @(
+        foreach ($pattern in @($Patterns)) {
+            if ([string]::IsNullOrWhiteSpace($pattern)) { continue }
+            foreach ($part in ([string]$pattern -split ',')) {
+                $trimmed = $part.Trim()
+                if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
+                    $trimmed
+                }
+            }
+        }
+    )
+}
+
 try {
     $moduleManifest = Join-Path $PSScriptRoot '..\src\DeploymentDrift.Common.psd1'
     $modulePsm1 = Join-Path $PSScriptRoot '..\src\DeploymentDrift.Common.psm1'
@@ -71,8 +93,8 @@ try {
     $EnvironmentName = $resolvedConfig.EnvironmentName
     $RootPath = $resolvedConfig.RootPath
     $BaselinePath = $resolvedConfig.BaselinePath
-    $IncludePatterns = $resolvedConfig.IncludePatterns
-    $ExcludePatterns = $resolvedConfig.ExcludePatterns
+    $IncludePatterns = ConvertTo-PatternArray -Patterns $resolvedConfig.IncludePatterns
+    $ExcludePatterns = ConvertTo-PatternArray -Patterns $resolvedConfig.ExcludePatterns
     $HashAlgorithm = $resolvedConfig.HashAlgorithm
     $effectiveArchiveRetentionCount = $resolvedConfig.ArchiveRetentionCount
 
@@ -191,10 +213,8 @@ try {
     Write-Host "$($MyInvocation.MyCommand.Name):: HashAlgorithm   : $HashAlgorithm"
 
     # Ensure patterns are arrays (avoid null/singleton issues)
-    if ($null -eq $IncludePatterns) { $IncludePatterns = @() }
-    elseif (-not ($IncludePatterns -is [System.Array])) { $IncludePatterns = @($IncludePatterns) }
-    if ($null -eq $ExcludePatterns) { $ExcludePatterns = @() }
-    elseif (-not ($ExcludePatterns -is [System.Array])) { $ExcludePatterns = @($ExcludePatterns) }
+    $IncludePatterns = ConvertTo-PatternArray -Patterns $IncludePatterns
+    $ExcludePatterns = ConvertTo-PatternArray -Patterns $ExcludePatterns
 
     # Resolve baseline file path: if BaselinePath is a directory, compose filename using ApplicationName
     if ([System.IO.Path]::GetExtension($BaselinePath) -ieq '.json') {

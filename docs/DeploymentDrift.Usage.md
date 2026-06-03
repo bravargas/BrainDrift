@@ -30,17 +30,28 @@ powershell.exe -ExecutionPolicy Bypass -File .\scripts\New-DeploymentBaseline.ps
 
 `Export-DeploymentFileManifest.ps1` can still generate an inventory for a folder when you call `Test-DeploymentDrift.ps1` directly and intentionally place `incoming-manifest.json` in the report folder. The sample `run-deploy.ps1` does not use this manifest; its deployment gate compares only the baseline against the current server.
 
+## Multiple folders under one root
+
+When a deployment needs to verify more than one folder under a shared parent, set `RootPath` to the common parent and use `IncludePatterns` for each folder. For example, to check only `HostAdapters` and `Portal` under `C:\Architect\2251_MU`:
+
+```powershell
+-RootPath 'C:\Architect\2251_MU' `
+-IncludePatterns 'HostAdapters/*','Portal/*'
+```
+
+The pattern `HostAdapters/*` includes nested files such as `HostAdapters/Dna/adapter.dll`. Folders outside those patterns, such as `Other Folder`, are ignored. BrainDrift inventories files, so empty folders are not recorded in the baseline.
+
 ## Deployment zero behavior
 
 When `BaselinePath` does not exist yet, the drift check should not try to compare the server against an unknown reference. That scenario represents the first deployment bootstrap.
 
 Recommended operational flow:
 
-1. Manually build and validate the server.
-2. Run `scripts\\New-DeploymentBaseline.ps1` to create the first trusted baseline.
-3. Only then enable `scripts\\Test-DeploymentDrift.ps1` in the normal pre-deployment flow.
+1. Run the first deployment without comparing against a missing reference.
+2. Create the first trusted baseline after the deployment succeeds by using `-PromoteBaselineOnSuccess`.
+3. On later deployments, let the normal pre-deployment drift gate compare the baseline against the current server.
 
-In the current implementation, a missing baseline returns exit code `3` and a clear message that initialization is required.
+When called directly, `scripts\Test-DeploymentDrift.ps1` still returns exit code `3` for a missing baseline because it is only the drift check. The sample `run-deploy.ps1` treats a missing baseline as deployment zero, skips the precheck, and can create the first trusted baseline after a successful deployment.
 
 `scripts\Test-DeploymentDrift.ps1` also writes a prominent `DEPLOYMENT DRIFT SUMMARY` table to the console/log output for completed checks, including the exit code, report path, drift status, conflict status, key file counts, and recommended action.
 
@@ -71,12 +82,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File _sample\deploy-package\run-d
 Notes:
 - The example keeps BrainDrift scripts out of the deployment package internals; integration occurs by invoking BrainDrift's entry scripts from the deploy orchestration.
 - `run-deploy.ps1` reads omitted defaults from `config\deployment-drift.config.json` using the same precedence as the core scripts: explicit parameters first, then config values, then sample fallback values.
+- `run-deploy.ps1` follows the same multi-step shape recommended for Harness: prepare incoming package, verify baseline vs current server, run deploy, optionally refresh the baseline after successful deploy, then clean temporary artifacts.
 - `run-deploy.ps1` does not compare the incoming package to the server during the precheck. It only checks whether the current server still matches the trusted baseline.
 - If `BaselinePath` points to a directory instead of a `.json` file, the active baseline file is named `ApplicationName[.EnvironmentName].baseline.json`.
-- The orchestration script aborts if the configured baseline is missing by default; to allow safe bootstrap baseline creation pass `-CreateBaselineIfMissing`.
-- When the baseline is missing, `-CreateBaselineIfMissing` takes precedence over `-FailOnDrift`; `-FailOnDrift` still applies to future runs after the baseline exists.
+- If the configured baseline is missing, `run-deploy.ps1` treats the run as deployment zero and skips the pre-deployment drift gate.
+- To capture the current server state before deployment zero, explicitly pass `-CreateBaselineIfMissing`.
+- When the baseline is missing, `-FailOnDrift` cannot apply because there is no trusted reference yet; it applies to future runs after the baseline exists.
 - If a baseline exists and drift is detected, `run-deploy.ps1` stops before `deploy` when `-FailOnDrift` is supplied.
-- If `-PromoteBaselineOnSuccess` is supplied, `run-deploy.ps1` refreshes the baseline after a successful deployment and archives the previous baseline version for root cause analysis.
+- If `-PromoteBaselineOnSuccess` is supplied, `run-deploy.ps1` creates or refreshes the baseline after a successful deployment and archives the previous baseline version when one exists.
+- If drift is detected and allowed because `-FailOnDrift` was omitted, the run can still exit `0`, but the final summary status is `SucceededWithDriftWarning`.
+- If no baseline exists and the run proceeds as deployment zero, the final summary status is `SucceededDeploymentZero`.
 
 Passing the `-FailOnDrift` option
 -------------------------------
@@ -111,23 +126,25 @@ Creating a baseline when missing
 
 The `run-deploy.ps1` script accepts a `-CreateBaselineIfMissing` switch to control behavior when the configured `BaselinePath` does not exist.
 
-- Default: if you do not bind the parameter, the orchestrator will NOT create a baseline automatically and will abort the run to avoid unsafe deployments.
+- Default: if you do not bind the parameter, the orchestrator treats the run as deployment zero, skips the pre-deployment drift gate, and does not create a pre-deployment baseline.
 
-- To allow automatic baseline creation at bootstrap, explicitly pass the switch: `-CreateBaselineIfMissing`. This switch takes precedence over `-FailOnDrift` only for the missing-baseline bootstrap case.
+- To create an initial baseline from the current server state before deployment, explicitly pass `-CreateBaselineIfMissing`. This is useful when you need an audit snapshot of the pre-deployment server state.
+
+- To create the first trusted deployment baseline after the deployment succeeds, pass `-PromoteBaselineOnSuccess`. This is the preferred deployment zero path when the baseline should represent the first successful deployment.
 
 Examples:
 
 ```powershell
-# Allow automatic baseline creation at bootstrap (safe - creates baseline if missing)
-.\_sample\deploy-package\run-deploy.ps1 -IncomingPackagePath $incoming -RootPath $target -BaselinePath $baseline -ReportPath $reports -CreateBaselineIfMissing
-
-# Create baseline at bootstrap (recommended for safe initial deployment)
-.\_sample\deploy-package\run-deploy.ps1 -IncomingPackagePath $incoming -RootPath $target -BaselinePath $baseline -ReportPath $reports -CreateBaselineIfMissing
-
-# Refresh baseline only when requested after a successful deploy
+# Deployment zero: deploy first, then create the first trusted baseline
 .\_sample\deploy-package\run-deploy.ps1 -IncomingPackagePath $incoming -RootPath $target -BaselinePath $baseline -ReportPath $reports -PromoteBaselineOnSuccess
+
+# Optional pre-deployment snapshot: create an initial baseline if missing
+.\_sample\deploy-package\run-deploy.ps1 -IncomingPackagePath $incoming -RootPath $target -BaselinePath $baseline -ReportPath $reports -CreateBaselineIfMissing
+
+# Optional pre-deployment snapshot plus final promotion
+.\_sample\deploy-package\run-deploy.ps1 -IncomingPackagePath $incoming -RootPath $target -BaselinePath $baseline -ReportPath $reports -CreateBaselineIfMissing -PromoteBaselineOnSuccess
 ```
-If you do not pass `-CreateBaselineIfMissing`, `run-deploy.ps1` exits with code `3` when the baseline is missing.
+If you call `scripts\Test-DeploymentDrift.ps1` directly and the baseline is missing, it exits with code `3`.
 
 ## Configuration example
 
@@ -140,7 +157,7 @@ The sample config file at `config\deployment-drift.config.json` can control the 
   "RootPath": "C:\\inetpub\\MyApp",
   "BaselinePath": "C:\\Deployments\\MyApp\\baseline\\last-successful-deployment.json",
   "ReportPath": "C:\\Deployments\\MyApp\\reports",
-  "IncludePatterns": ["web.config", "*.config", "*.json", "*.xml", "*.dll"],
+  "IncludePatterns": ["HostAdapters/*", "Portal/*"],
   "ExcludePatterns": ["logs*", "temp*", "App_Data\\cache*"],
   "HashAlgorithm": "SHA256",
   "ArchiveRetentionCount": 10

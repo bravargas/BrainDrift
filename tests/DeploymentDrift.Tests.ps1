@@ -129,6 +129,29 @@ Describe 'DeploymentDrift Suite' {
         $reportObj.classification.hasDrift | Should -BeFalse
     }
 
+    It 'Includes recursive files under selected subfolders and ignores other folders' {
+        $moduleManifest = Join-Path $script:repoRoot 'src\DeploymentDrift.Common.psd1'
+        Import-Module -Name $moduleManifest -Scope Local -Force -ErrorAction Stop
+
+        $multiRoot = Join-Path $script:testSample 'multi-root'
+        $hostAdaptersDna = Join-Path $multiRoot 'HostAdapters\Dna'
+        $portalConfig = Join-Path $multiRoot 'Portal\Config'
+        $otherFolder = Join-Path $multiRoot 'Other Folder'
+
+        New-Item -ItemType Directory -Path $hostAdaptersDna, $portalConfig, $otherFolder -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $hostAdaptersDna 'adapter.dll') -Value 'ADAPTER' -Encoding ASCII
+        Set-Content -LiteralPath (Join-Path $portalConfig 'web.config') -Value 'PORTAL' -Encoding UTF8
+        Set-Content -LiteralPath (Join-Path $otherFolder 'ignored.dll') -Value 'IGNORED' -Encoding ASCII
+
+        $inventory = Get-FileInventory -RootPath $multiRoot -IncludePatterns 'HostAdapters/*', 'Portal/*'
+        $relativePaths = @($inventory | ForEach-Object { $_.relativePath })
+
+        $relativePaths | Should -Contain 'HostAdapters/Dna/adapter.dll'
+        $relativePaths | Should -Contain 'Portal/Config/web.config'
+        $relativePaths | Should -Not -Contain 'Other Folder/ignored.dll'
+        @($relativePaths).Count | Should -Be 2
+    }
+
     It 'Fails when server drifts and FailOnDrift is enabled' {
         if ($script:useRealServer) {
             Write-Host 'Skipping server drift test when using a real server path to avoid modifying production files.'
@@ -178,9 +201,72 @@ Describe 'DeploymentDrift Suite' {
         }
     }
 
-    It 'Aborts run-deploy when baseline is missing by default (no auto-bootstrap)' {
+    It 'Marks run-deploy as SucceededWithDriftWarning when drift is allowed' {
         if ($script:useRealServer) {
-            Write-Host 'Skipping bootstrap-default test when using a real server path.'
+            Write-Host 'Skipping run-deploy drift warning test when using a real server path.'
+            return
+        }
+
+        $warningRoot = Join-Path $script:testSample 'drift-warning'
+        $warningServer = Join-Path $warningRoot 'server'
+        $warningIncoming = Join-Path $warningRoot 'incoming'
+        $warningBaseline = Join-Path $warningRoot 'baseline'
+        $warningReports = Join-Path $warningRoot 'reports'
+        $warningBaselineFile = Join-Path $warningBaseline (Get-BaselineFileName -ApplicationName 'WarningSample' -EnvironmentName 'TEST')
+
+        New-Item -ItemType Directory -Path $warningServer, $warningIncoming, $warningBaseline, $warningReports -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $warningServer 'web.config') -Value 'SERVER_BASELINE' -Encoding UTF8
+        Set-Content -LiteralPath (Join-Path $warningIncoming 'web.config') -Value 'INCOMING_DEPLOY' -Encoding UTF8
+
+        & $script:pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:scripts 'New-DeploymentBaseline.ps1') `
+            -ApplicationName 'WarningSample' -DeploymentId 'TEST-WARNING-BASELINE' -EnvironmentName 'TEST' -ServerName 'LOCAL' `
+            -RootPath $warningServer -BaselinePath $warningBaseline -IncludePatterns '*' | Out-Null
+
+        Test-Path -LiteralPath $warningBaselineFile | Should -BeTrue
+
+        Set-Content -LiteralPath (Join-Path $warningServer 'web.config') -Value 'SERVER_DRIFT_ALLOWED' -Encoding UTF8
+
+        $output = & $script:pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:repoRoot '_sample\deploy-package\run-deploy.ps1') `
+            -IncomingPackagePath $warningIncoming `
+            -RootPath $warningServer `
+            -BaselinePath $warningBaseline `
+            -ReportPath $warningReports `
+            -ApplicationName 'WarningSample' `
+            -EnvironmentName 'TEST' `
+            -IncludePatterns '*' 2>&1
+
+        $LASTEXITCODE | Should -Be 0
+        ($output -join "`n") | Should -Match 'RUN-DEPLOY SUMMARY :: SucceededWithDriftWarning'
+    }
+
+    It 'Creates the first trusted baseline after deployment zero when promotion is requested' {
+        if ($script:useRealServer) {
+            Write-Host 'Skipping deployment-zero promotion test when using a real server path.'
+            return
+        }
+
+        Remove-Item -LiteralPath $script:baselineFile -ErrorAction SilentlyContinue
+
+        & $script:pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:repoRoot '_sample\deploy-package\run-deploy.ps1') `
+            -IncomingPackagePath $script:incoming `
+            -RootPath $script:server `
+            -BaselinePath $script:baseline `
+            -ReportPath $script:reports `
+            -ApplicationName 'Sample' `
+            -EnvironmentName 'TEST' `
+            -PromoteBaselineOnSuccess `
+            -IncludePatterns '*' | Out-Null
+
+        $LASTEXITCODE | Should -Be 0
+        Test-Path -LiteralPath $script:baselineFile | Should -BeTrue
+
+        $baselineObj = Get-Content -LiteralPath $script:baselineFile -Raw | ConvertFrom-Json
+        @($baselineObj.files | Where-Object { ($_.relativePath -replace '/', '\') -eq 'Portal\Web.config' }).Count | Should -Be 1
+    }
+
+    It 'Allows deployment zero without creating a baseline when promotion is not requested' {
+        if ($script:useRealServer) {
+            Write-Host 'Skipping deployment-zero no-promotion test when using a real server path.'
             return
         }
 
@@ -195,7 +281,7 @@ Describe 'DeploymentDrift Suite' {
             -EnvironmentName 'TEST' `
             -IncludePatterns '*' | Out-Null
 
-        $LASTEXITCODE | Should -Be 3
+        $LASTEXITCODE | Should -Be 0
         Test-Path -LiteralPath $script:baselineFile | Should -BeFalse
     }
 
@@ -233,7 +319,7 @@ Describe 'DeploymentDrift Suite' {
             -IncomingPackagePath $script:incoming `
             -FailOnDrift | Out-Null
 
-        $LASTEXITCODE | Should -Be 3
+        $LASTEXITCODE | Should -Be 0
         Test-Path -LiteralPath (Join-Path $configBaseline 'ConfigSample.CFG.baseline.json') | Should -BeFalse
     }
 

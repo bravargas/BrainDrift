@@ -46,6 +46,28 @@ $pw = 'powershell'
 
 Write-Host "$($MyInvocation.MyCommand.Name):: START"
 
+function ConvertTo-PatternArray {
+    param(
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [string[]]$Patterns
+    )
+
+    if ($null -eq $Patterns) { return @() }
+
+    return @(
+        foreach ($pattern in @($Patterns)) {
+            if ([string]::IsNullOrWhiteSpace($pattern)) { continue }
+            foreach ($part in ([string]$pattern -split ',')) {
+                $trimmed = $part.Trim()
+                if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
+                    $trimmed
+                }
+            }
+        }
+    )
+}
+
 function Write-DriftSummaryTable {
     param(
         [Parameter(Mandatory = $true)]
@@ -144,8 +166,8 @@ try {
     $RootPath = $resolvedConfig.RootPath
     $BaselinePath = $resolvedConfig.BaselinePath
     $ReportPath = $resolvedConfig.ReportPath
-    $IncludePatterns = $resolvedConfig.IncludePatterns
-    $ExcludePatterns = $resolvedConfig.ExcludePatterns
+    $IncludePatterns = ConvertTo-PatternArray -Patterns $resolvedConfig.IncludePatterns
+    $ExcludePatterns = ConvertTo-PatternArray -Patterns $resolvedConfig.ExcludePatterns
     $HashAlgorithm = $resolvedConfig.HashAlgorithm
 
     Write-Host "$($MyInvocation.MyCommand.Name):: Parameters resolved:"

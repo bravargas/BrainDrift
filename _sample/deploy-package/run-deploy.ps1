@@ -247,11 +247,13 @@ $script:Summary = [ordered]@{
     BaselinePath = ''
     BaselineBootstrapAttempted = $false
     BaselineBootstrapBlocked = $false
+    DeploymentZero = $false
 }
 
 function Write-Summary {
     $status = [string]$script:Summary.FinalStatus
     $color = switch -Regex ($status) {
+        'Warning|DeploymentZero' { 'Yellow' }
         'Succeeded|Completed|NoDrift' { 'Green' }
         'Blocked|Failed|Drift|Conflict|Missing' { 'Red' }
         default { 'Yellow' }
@@ -305,7 +307,7 @@ try {
     if ((Test-Path -LiteralPath $resolvedIncoming) -and -not (Test-Path -LiteralPath $resolvedIncoming -PathType Container)) {
         $ext = [System.IO.Path]::GetExtension($resolvedIncoming)
         if ($ext -ieq '.nupkg') {
-            Write-Stage "run-deploy:: Detected .nupkg incoming package. Preparing extraction."
+            Write-Stage "run-deploy:: STEP 0: Prepare incoming package - extracting .nupkg."
             $extractedTemp = Join-Path $staging ([System.Guid]::NewGuid().ToString())
             New-Item -Path $extractedTemp -ItemType Directory -Force | Out-Null
 
@@ -331,10 +333,12 @@ try {
 
     $baselineFilePath = Resolve-BaselineFilePath -BaselinePath $BaselinePath -ApplicationName $ApplicationName -EnvironmentName $EnvironmentName
     $baselineExists = Test-Path -LiteralPath $baselineFilePath -PathType Leaf
+    Write-Stage 'run-deploy:: STEP 1: Verify - pre-deployment baseline check.' 'Cyan'
     if (-not $baselineExists) {
         if ($CreateBaselineIfMissing) {
             $script:Summary.BaselineBootstrapAttempted = $true
-            Write-Stage 'run-deploy:: BOOTSTRAP: Baseline missing - CreateBaselineIfMissing is present and takes precedence.' 'Green'
+            Write-Stage 'run-deploy:: STEP 1A: Optional pre-deployment baseline snapshot.' 'Green'
+            Write-Log 'run-deploy:: Baseline missing and CreateBaselineIfMissing is present. Creating a pre-deployment baseline snapshot before deploy.' 'Yellow'
             if ($FailOnDrift) {
                 Write-Log 'run-deploy:: NOTE: FailOnDrift will still abort future drift checks after the baseline exists.' 'Yellow'
             }
@@ -348,6 +352,9 @@ try {
                 '-BaselinePath', $BaselinePath,
                 '-ConfigPath', $ConfigPath
             )
+            if ($IncludePatterns.Count -gt 0) { $baselineArgs += '-IncludePatterns'; $baselineArgs += ($IncludePatterns -join ',') }
+            if ($ExcludePatterns.Count -gt 0) { $baselineArgs += '-ExcludePatterns'; $baselineArgs += ($ExcludePatterns -join ',') }
+            if ($HashAlgorithm) { $baselineArgs += '-HashAlgorithm'; $baselineArgs += $HashAlgorithm }
             & $pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot '..\..\scripts\New-DeploymentBaseline.ps1') @baselineArgs
             $be = $LASTEXITCODE
             $script:Summary.BaselineExit = $be
@@ -364,11 +371,13 @@ try {
             }
         }
         else {
-            $script:Summary.BaselineBootstrapBlocked = $true
-            $script:Summary.FinalStatus = 'BlockedMissingBaseline'
-            Write-Log 'run-deploy:: Baseline file is missing and auto-bootstrap was not allowed. Aborting to avoid unsafe deployment.' 'Red'
-            Write-Summary
-            exit 3
+            $script:Summary.DeploymentZero = $true
+            Write-Stage 'run-deploy:: STEP 1: Verify - deployment zero, no baseline to compare.' 'Yellow'
+            Write-Log 'run-deploy:: No previous baseline exists, so there is no trusted reference to compare against.' 'Yellow'
+            Write-Log 'run-deploy:: Use -CreateBaselineIfMissing to capture the current server state before deploy, or -PromoteBaselineOnSuccess to create the first trusted baseline after deploy.' 'Yellow'
+            if ($FailOnDrift) {
+                Write-Log 'run-deploy:: NOTE: FailOnDrift cannot apply until a baseline exists; it will apply on later runs.' 'Yellow'
+            }
         }
     }
     else {
@@ -401,6 +410,8 @@ try {
         }
 
         if ($HashAlgorithm) { $precheckArgs += '-HashAlgorithm'; $precheckArgs += $HashAlgorithm }
+        if ($IncludePatterns.Count -gt 0) { $precheckArgs += '-IncludePatterns'; $precheckArgs += ($IncludePatterns -join ',') }
+        if ($ExcludePatterns.Count -gt 0) { $precheckArgs += '-ExcludePatterns'; $precheckArgs += ($ExcludePatterns -join ',') }
         # No combined flags; individual flags only
 
         Write-Log "run-deploy:: Running Test-DeploymentDrift.ps1 with args: $($precheckArgs -join ' ')" 'Yellow'
@@ -480,8 +491,7 @@ try {
         }
     }
 
-    # 1) deploy: apply files
-    Write-Stage 'run-deploy:: STEP: Deploy - applying files (deploy.ps1)' 'Blue'
+    Write-Stage 'run-deploy:: STEP 2: Deploy - applying files (deploy.ps1).' 'Blue'
     Write-Log "run-deploy:: Invoking deploy.ps1 -SourcePath $IncomingPackagePath -RootPath $RootPath -Apply" 'Yellow'
     $script:Summary.DeployInvoked = $true
     & $pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'deploy.ps1') -SourcePath $IncomingPackagePath -RootPath $RootPath -Apply
@@ -490,13 +500,23 @@ try {
     Write-Log "run-deploy:: deploy.ps1 exit code: $deployExit" 'Yellow'
     if ($deployExit -ne 0) { $script:Summary.FinalStatus = 'FailedDeploy'; Write-Log 'run-deploy:: deploy failed' 'Red'; Write-Summary; exit 2 }
 
-    # 3) refresh the baseline after a successful deployment only if explicitly requested
     if ($PromoteBaselineOnSuccess) {
-        Write-Stage 'run-deploy:: STEP: Deployment succeeded - creating or refreshing baseline (New-DeploymentBaseline.ps1)' 'Green'
+        Write-Stage 'run-deploy:: STEP 3: Refresh baseline - deployment succeeded.' 'Green'
         Write-Warning 'run-deploy:: -PromoteBaselineOnSuccess requested: refreshing baseline now.'
         Write-Log "run-deploy:: Invoking New-DeploymentBaseline.ps1 -RootPath $RootPath -BaselinePath $BaselinePath" 'Yellow'
-        & $pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot '..\..\scripts\New-DeploymentBaseline.ps1') `
-            -ApplicationName $ApplicationName -DeploymentId $DeploymentId -EnvironmentName $EnvironmentName -ServerName $ServerName -RootPath $RootPath -BaselinePath $BaselinePath -ConfigPath $ConfigPath
+        $baselineArgs = @(
+            '-ApplicationName', $ApplicationName,
+            '-DeploymentId', $DeploymentId,
+            '-EnvironmentName', $EnvironmentName,
+            '-ServerName', $ServerName,
+            '-RootPath', $RootPath,
+            '-BaselinePath', $BaselinePath,
+            '-ConfigPath', $ConfigPath
+        )
+        if ($IncludePatterns.Count -gt 0) { $baselineArgs += '-IncludePatterns'; $baselineArgs += ($IncludePatterns -join ',') }
+        if ($ExcludePatterns.Count -gt 0) { $baselineArgs += '-ExcludePatterns'; $baselineArgs += ($ExcludePatterns -join ',') }
+        if ($HashAlgorithm) { $baselineArgs += '-HashAlgorithm'; $baselineArgs += $HashAlgorithm }
+        & $pw -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot '..\..\scripts\New-DeploymentBaseline.ps1') @baselineArgs
         $baselineExit = $LASTEXITCODE
         $script:Summary.BaselineExit = $baselineExit
         if ($baselineExit -eq 0) {
@@ -507,20 +527,29 @@ try {
         if ($baselineExit -ne 0) { $script:Summary.FinalStatus = 'FailedBaselineRefresh'; Write-Log 'run-deploy:: baseline creation failed' 'Red'; Write-Summary; exit 2 }
     }
     else {
-        Write-Log 'run-deploy:: Baseline refresh skipped (PromoteBaselineOnSuccess not present).' 'Gray'
+        Write-Stage 'run-deploy:: STEP 3: Refresh baseline skipped.' 'Gray'
+        Write-Log 'run-deploy:: Baseline refresh skipped because PromoteBaselineOnSuccess is not present.' 'Gray'
     }
 
     if ($FailOnDrift) {
-        Write-Log 'run-deploy:: FailOnDrift was supplied but is not needed for the new baseline-first flow.' 'Gray'
+        Write-Log 'run-deploy:: FailOnDrift was applied during the verification step when a baseline was available.' 'Gray'
     }
 
-    $script:Summary.FinalStatus = 'Succeeded'
+    if ($script:Summary.PrecheckResult -eq 'Drift') {
+        $script:Summary.FinalStatus = 'SucceededWithDriftWarning'
+    }
+    elseif ($script:Summary.DeploymentZero) {
+        $script:Summary.FinalStatus = 'SucceededDeploymentZero'
+    }
+    else {
+        $script:Summary.FinalStatus = 'Succeeded'
+    }
     Write-Summary
     Write-Stage 'run-deploy:: DONE - deployment flow complete' 'Green'
     exit 0
 }
 finally {
-    # cleanup temporary extraction artifacts
+    Write-Stage 'run-deploy:: STEP 4: Cleanup - removing temporary package artifacts.' 'Gray'
     if ($null -ne $copiedZip -and (Test-Path -LiteralPath $copiedZip)) {
         Remove-Item -LiteralPath $copiedZip -Force -ErrorAction SilentlyContinue
     }

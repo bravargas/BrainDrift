@@ -14,9 +14,11 @@ The deployment package is not part of the default gate. This keeps drift detecti
 - `scripts/Export-DeploymentFileManifest.ps1` - optional utility for direct three-way inventory analysis
 - `docs/Production-Usage.md` - production integration block for pipelines
 
-`scripts/Test-DeploymentDrift.ps1` and the sample `run-deploy.ps1` can fall back to `config/deployment-drift.config.json` for defaults when parameters are omitted. `run-deploy.ps1` validates baseline vs current server before deploying.
+`scripts/Test-DeploymentDrift.ps1` and the sample `run-deploy.ps1` can fall back to `config/deployment-drift.config.json` for defaults when parameters are omitted. `run-deploy.ps1` validates baseline vs current server before deploying when a baseline exists; when no baseline exists, it treats the run as deployment zero.
 
 `scripts/Test-DeploymentDrift.ps1` prints a highlighted `DEPLOYMENT DRIFT SUMMARY` table so the final status, exit code, report path, drift counts, and recommended action stand out in production logs.
+
+For deployment zero, use `run-deploy.ps1 -PromoteBaselineOnSuccess` to create the first trusted baseline after a successful deployment. Add `-CreateBaselineIfMissing` only when you intentionally want a pre-deployment baseline snapshot.
 
 The production NuGet package is defined by [BrainDrift.nuspec](BrainDrift.nuspec) and intentionally excludes sample data, demo deploy scripts, and internal tests.
 

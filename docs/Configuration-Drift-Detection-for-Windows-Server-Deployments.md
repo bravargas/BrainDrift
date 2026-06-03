@@ -78,11 +78,12 @@ That case should be treated as initialization, not as drift.
 
 Recommended handling:
 
-- Validate the manually built server first.
-- Create the initial baseline from that trusted state.
-- Enable normal drift detection only after the baseline exists.
+- Run the first deployment without comparing against a missing reference.
+- Create the first trusted baseline after the deployment succeeds.
+- Optionally create an initial baseline before deployment only when an audit snapshot of the current server state is required.
+- Enable normal drift detection after the baseline exists.
 
-In the current PowerShell implementation, a missing baseline is treated as a controlled condition with exit code `3`. The deployment process should stop and require a baseline bootstrap step before continuing.
+When `Test-DeploymentDrift.ps1` is called directly, a missing baseline is treated as a controlled condition with exit code `3`. The sample `run-deploy.ps1` handles that same condition as deployment zero: it skips the pre-deployment drift gate, runs the deployment, and creates the first trusted baseline after success when `-PromoteBaselineOnSuccess` is supplied. If `-CreateBaselineIfMissing` is supplied, it creates an optional pre-deployment baseline snapshot before deploying.
 
 ## Process Overview
 
@@ -167,9 +168,13 @@ This sample orchestration script demonstrates how to combine the BrainDrift scri
 It:
 
 - Extracts a `.nupkg` when supplied.
-- Runs a pre-deployment baseline-vs-server drift check before copying files.
+- Preserves a multi-step orchestration flow similar to Harness: prepare, verify, deploy, refresh baseline, and cleanup.
+- Runs a pre-deployment baseline-vs-server drift check before copying files when a baseline exists.
+- Treats a missing baseline as deployment zero and skips the pre-deployment drift gate.
+- Can create an optional pre-deployment baseline snapshot with `-CreateBaselineIfMissing`.
 - Runs the deployment copy step only after the drift decision is made.
 - Optionally promotes the deployed server state to a new baseline and archives the previous baseline version.
+- Reports `SucceededWithDriftWarning` when drift was detected but allowed, and `SucceededDeploymentZero` when the first run proceeds without a baseline.
 
 ### `Export-DeploymentFileManifest.ps1`
 
@@ -196,6 +201,8 @@ The same file is used in two places:
 - `scripts/New-DeploymentBaseline.ps1` reads `ArchiveRetentionCount` from it unless the caller passes `-ArchiveRetentionCount` explicitly.
 
 It can also control baseline archive retention through `ArchiveRetentionCount`.
+
+When several application folders live under the same parent, use the parent as `RootPath` and restrict the inventory with folder include patterns. For example, `RootPath = C:\Architect\2251_MU` with `IncludePatterns = ["HostAdapters/*", "Portal/*"]` includes files under `HostAdapters\Dna` and `Portal`, while ignoring sibling folders such as `Other Folder`.
 
 ## Baseline JSON Example
 
@@ -305,7 +312,7 @@ This sequence ensures that the baseline always represents the last successful de
 
 For production environments, a manual approval step in Harness is strongly recommended when drift is detected or when a deployment affects critical configuration files.
 
-If you are implementing the initial deployment bootstrap, allow the framework to continue when the baseline is missing, then create the baseline after the first successful deployment.
+If you are implementing the initial deployment bootstrap, allow the framework to continue when the baseline is missing, then create the baseline after the first successful deployment. Use `-CreateBaselineIfMissing` only when you intentionally want to capture the pre-deployment server state before that first run.
 
 ## Recommended Exit Codes
 
@@ -316,7 +323,7 @@ Use the following exit code convention for automation and pipeline handling:
 - `2` = Script error or invalid input.
 - `3` = Baseline file missing.
 
-For deployment zero, exit code `3` is the expected outcome until the first trusted baseline has been created.
+For direct drift checks, exit code `3` is the expected outcome until the first trusted baseline has been created. In the sample `run-deploy.ps1`, deployment zero is handled by skipping the precheck instead of returning `3`.
 
 These exit codes make it easier for Harness or other orchestration tooling to route the result to failure handling, manual approval, or operational alerting.
 
@@ -339,11 +346,9 @@ The following practices make drift detection more reliable and easier to operate
 
 The example configuration file in this repository reflects these recommendations:
 
-- `web.config`
-- `*.config`
-- `*.json`
-- `*.xml`
-- `*.dll`
+- Set `RootPath` to the shared application parent.
+- Use folder includes such as `HostAdapters/*` and `Portal/*` when only selected child folders should be checked.
+- Use file-type includes such as `*.config`, `*.json`, `*.xml`, and `*.dll` when the whole root should be scanned by file type.
 
 Typical exclusions include:
 

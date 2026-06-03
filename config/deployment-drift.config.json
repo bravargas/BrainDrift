@@ -5,11 +5,9 @@
   "BaselinePath": "C:\\Deployments\\baselines",
   "ReportPath": "C:\\Deployments\\reports",
   "IncludePatterns": [
-    "web.config",
-    "*.config",
-    "*.json",
-    "*.xml",
-    "*.dll"
+    "HostAdapters/*",
+    "Portal/*",
+    "Web"
   ],
   "ExcludePatterns": [
     "logs*",
